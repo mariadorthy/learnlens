@@ -1,6 +1,6 @@
 import json
 import time
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -54,10 +54,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto"
-)
+password_hash = PasswordHash.recommended()
 
 
 # ============================================================
@@ -512,13 +509,12 @@ def register(
 
         print("Creating student...")
 
-        password_hash = pwd_context.hash(password)
-
+        hashed_password = password_hash.hash(password)
         print("Password hashed successfully")
 
         student = models.Student(
             username=username,
-            password_hash=password_hash
+                password_hash=hashed_password
         )
 
         db.add(student)
@@ -586,14 +582,14 @@ def login(
             detail="Invalid username or password"
         )
 
-    if not pwd_context.verify(
-        password,
-        student.password_hash
-    ):
+    if not password_hash.verify(
+    password,
+    student.password_hash
+):
         raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password"
-        )
+        status_code=401,
+        detail="Invalid username or password"
+    )
 
     return {
         "success": True,
