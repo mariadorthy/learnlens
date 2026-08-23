@@ -1,14 +1,8 @@
 import json
 import time
 from pwdlib import PasswordHash
-from pwdlib.hashers.argon2 import Argon2Hasher
-from pwdlib.hashers.bcrypt import BcryptHasher
 
-password_hash = PasswordHash([
-    Argon2Hasher(),
-    BcryptHasher(),
-])
-
+password_hash = PasswordHash.recommended()
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -468,189 +462,103 @@ def register(
     data: dict,
     db: Session = Depends(get_db)
 ):
-    try:
-        username = str(
-            data.get("username", "")
-        ).strip().lower()
+    username = str(data.get("username", "")).strip().lower()
+    password = str(data.get("password", ""))
 
-        password = str(
-            data.get("password", "")
-        )
-
-        print("REGISTER REQUEST")
-        print("Username:", username)
-        print("Password length:", len(password))
-
-        if not username:
-            raise HTTPException(
-                status_code=400,
-                detail="Username is required"
-            )
-
-        if len(username) < 3:
-            raise HTTPException(
-                status_code=400,
-                detail="Username must be at least 3 characters"
-            )
-
-        if len(password) < 6:
-            raise HTTPException(
-                status_code=400,
-                detail="Password must be at least 6 characters"
-            )
-
-        existing_student = (
-            db.query(models.Student)
-            .filter(
-                models.Student.username == username
-            )
-            .first()
-        )
-
-        if existing_student:
-            raise HTTPException(
-                status_code=409,
-                detail="Username already exists"
-            )
-
-        print("Creating student...")
-
-        hashed_password = password_hash.hash(password)
-        print("Password hashed successfully")
-
-        student = models.Student(
-            username=username,
-                password_hash=hashed_password
-        )
-
-        db.add(student)
-
-        print("Committing student...")
-
-        db.commit()
-
-        print("Commit successful")
-
-        db.refresh(student)
-
-        print("Student created:", student.id)
-
-        return {
-            "success": True,
-            "message": "Account created successfully",
-            "student_id": str(student.id),
-            "username": student.username
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as error:
-        print("REGISTER ERROR:")
-        print(repr(error))
-
-        db.rollback()
-
+    if not username:
         raise HTTPException(
-            status_code=500,
-            detail=f"Registration failed: {str(error)}"
+            status_code=400,
+            detail="Username is required"
         )
-       
+
+    if len(username) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be at least 3 characters"
+        )
+
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters"
+        )
+
+    existing_student = (
+        db.query(models.Student)
+        .filter(models.Student.username == username)
+        .first()
+    )
+
+    if existing_student:
+        raise HTTPException(
+            status_code=409,
+            detail="Username already exists"
+        )
+
+    hashed_password = password_hash.hash(password)
+
+    student = models.Student(
+        username=username,
+        password_hash=hashed_password
+    )
+
+    db.add(student)
+    db.commit()
+    db.refresh(student)
+
+    return {
+        "success": True,
+        "message": "Account created successfully",
+        "student_id": str(student.id),
+        "username": student.username
+    }
+
 # ============================================================
 # LOGIN
 # ============================================================
+
 @app.post("/auth/login")
 def login(
     data: dict,
     db: Session = Depends(get_db)
 ):
-    try:
-        username = str(
-            data.get("username", "")
-        ).strip().lower()
+    username = str(data.get("username", "")).strip().lower()
+    password = str(data.get("password", ""))
 
-        password = str(
-            data.get("password", "")
-        )
-
-        print("\n================ LOGIN DEBUG ================")
-        print("Username:", username)
-        print("Password received:", bool(password))
-
-        if not username or not password:
-            raise HTTPException(
-                status_code=400,
-                detail="Username and password are required"
-            )
-
-        print("Looking for student...")
-
-        student = (
-            db.query(models.Student)
-            .filter(
-                models.Student.username == username
-            )
-            .first()
-        )
-
-        print("Student found:", student is not None)
-
-        if not student:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid username or password"
-            )
-
-        print("Student ID:", student.id)
-        print("Password hash exists:", bool(student.password_hash))
-        print(
-            "Password hash prefix:",
-            student.password_hash[:20]
-            if student.password_hash
-            else None
-        )
-
-        print("Verifying password...")
-
-        password_valid = password_hash.verify(
-            password,
-            student.password_hash
-        )
-
-        print("Password valid:", password_valid)
-
-        if not password_valid:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid username or password"
-            )
-
-        print("LOGIN SUCCESS")
-        print("============================================\n")
-
-        return {
-            "success": True,
-            "message": "Login successful",
-            "student_id": str(student.id),
-            "username": student.username
-        }
-
-    except HTTPException:
-        raise
-
-    except Exception as error:
-        import traceback
-
-        print("\n!!!!!!!! LOGIN ERROR !!!!!!!!")
-        print(repr(error))
-        traceback.print_exc()
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-
+    if not username or not password:
         raise HTTPException(
-            status_code=500,
-            detail="Login failed. Check backend terminal."
+            status_code=400,
+            detail="Username and password are required"
         )
-    
+
+    student = (
+        db.query(models.Student)
+        .filter(models.Student.username == username)
+        .first()
+    )
+
+    if not student:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    if not password_hash.verify(
+        password,
+        student.password_hash
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password"
+        )
+
+    return {
+        "success": True,
+        "message": "Login successful",
+        "student_id": str(student.id),
+        "username": student.username
+    }
+
 # ============================================================
 # RUN PYTHON CODE
 # ============================================================
