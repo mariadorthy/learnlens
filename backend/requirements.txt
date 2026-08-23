@@ -4,4 +4,4 @@ sqlalchemy
 pydantic
 google-genai
 python-dotenv
-pwdlib[argon2]
+pwdlib[argon2,bcrypt]

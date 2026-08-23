@@ -1,6 +1,14 @@
 import json
 import time
 from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
+from pwdlib.hashers.bcrypt import BcryptHasher
+
+password_hash = PasswordHash([
+    Argon2Hasher(),
+    BcryptHasher(),
+])
+
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -54,8 +62,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-password_hash = PasswordHash.recommended()
-
 
 # ============================================================
 # LEARNING FRAMEWORK
@@ -553,52 +559,98 @@ def register(
 # ============================================================
 # LOGIN
 # ============================================================
-
 @app.post("/auth/login")
 def login(
     data: dict,
     db: Session = Depends(get_db)
 ):
+    try:
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
 
-    username = str(
-        data.get("username", "")
-    ).strip().lower()
-
-    password = str(
-        data.get("password", "")
-    )
-
-    student = (
-        db.query(models.Student)
-        .filter(
-            models.Student.username == username
-        )
-        .first()
-    )
-
-    if not student:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password"
+        password = str(
+            data.get("password", "")
         )
 
-    if not password_hash.verify(
-    password,
-    student.password_hash
-):
+        print("\n================ LOGIN DEBUG ================")
+        print("Username:", username)
+        print("Password received:", bool(password))
+
+        if not username or not password:
+            raise HTTPException(
+                status_code=400,
+                detail="Username and password are required"
+            )
+
+        print("Looking for student...")
+
+        student = (
+            db.query(models.Student)
+            .filter(
+                models.Student.username == username
+            )
+            .first()
+        )
+
+        print("Student found:", student is not None)
+
+        if not student:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid username or password"
+            )
+
+        print("Student ID:", student.id)
+        print("Password hash exists:", bool(student.password_hash))
+        print(
+            "Password hash prefix:",
+            student.password_hash[:20]
+            if student.password_hash
+            else None
+        )
+
+        print("Verifying password...")
+
+        password_valid = password_hash.verify(
+            password,
+            student.password_hash
+        )
+
+        print("Password valid:", password_valid)
+
+        if not password_valid:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid username or password"
+            )
+
+        print("LOGIN SUCCESS")
+        print("============================================\n")
+
+        return {
+            "success": True,
+            "message": "Login successful",
+            "student_id": str(student.id),
+            "username": student.username
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        import traceback
+
+        print("\n!!!!!!!! LOGIN ERROR !!!!!!!!")
+        print(repr(error))
+        traceback.print_exc()
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+
         raise HTTPException(
-        status_code=401,
-        detail="Invalid username or password"
-    )
-
-    return {
-        "success": True,
-        "message": "Login successful",
-        "student_id": str(student.id),
-        "username": student.username
-    }
-
-
+            status_code=500,
+            detail="Login failed. Check backend terminal."
+        )
+    
 # ============================================================
 # RUN PYTHON CODE
 # ============================================================
