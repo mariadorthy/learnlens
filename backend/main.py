@@ -25,20 +25,21 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="LearnLens API")
 
-FRONTEND_URL = os.getenv(
-    "FRONTEND_URL",
-    "https://learnlens-eight.vercel.app"
-)
-
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://learnlens-eight.vercel.app",
 ]
 
-# Add FRONTEND_URL if it is different
-if FRONTEND_URL and FRONTEND_URL not in ALLOWED_ORIGINS:
-    ALLOWED_ORIGINS.append(FRONTEND_URL)
+frontend_url = os.getenv("FRONTEND_URL")
+
+if frontend_url:
+    frontend_url = frontend_url.strip().rstrip("/")
+
+    if frontend_url and frontend_url not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(frontend_url)
+
+print("CORS allowed origins:", ALLOWED_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
