@@ -453,6 +453,13 @@ def generate_adaptive_recommendation(
 # CREATE ACCOUNT
 # ============================================================
 
+@app.get("/debug")
+def debug():
+    return {
+        "status": "ok",
+        "message": "Latest backend code is running"
+    }
+
 @app.post("/auth/register")
 def register(
     data: dict,
