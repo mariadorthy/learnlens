@@ -18,6 +18,12 @@ from collections import OrderedDict
 # ============================================================
 
 models.Base.metadata.create_all(bind=engine)
+try:
+    with engine.connect() as connection:
+        print("DATABASE CONNECTION: OK")
+except Exception as error:
+    print("DATABASE CONNECTION FAILED:")
+    print(repr(error))
 
 # ============================================================
 # APP
@@ -461,7 +467,9 @@ def register(
             data.get("password", "")
         )
 
-        print("REGISTER REQUEST:", username)
+        print("REGISTER REQUEST")
+        print("Username:", username)
+        print("Password length:", len(password))
 
         if not username:
             raise HTTPException(
@@ -481,8 +489,6 @@ def register(
                 detail="Password must be at least 6 characters"
             )
 
-        print("Checking existing user...")
-
         existing_student = (
             db.query(models.Student)
             .filter(
@@ -497,28 +503,28 @@ def register(
                 detail="Username already exists"
             )
 
-        print("Hashing password...")
+        print("Creating student...")
 
         password_hash = pwd_context.hash(password)
 
-        print("Password hash created")
+        print("Password hashed successfully")
 
         student = models.Student(
             username=username,
             password_hash=password_hash
         )
 
-        print("Adding student to database...")
-
         db.add(student)
 
-        print("Committing database...")
+        print("Committing student...")
 
         db.commit()
 
-        print("Database commit successful")
+        print("Commit successful")
 
         db.refresh(student)
+
+        print("Student created:", student.id)
 
         return {
             "success": True,
@@ -531,10 +537,8 @@ def register(
         raise
 
     except Exception as error:
-        print("====================================")
-        print("REGISTER ERROR")
+        print("REGISTER ERROR:")
         print(repr(error))
-        print("====================================")
 
         db.rollback()
 
@@ -542,7 +546,7 @@ def register(
             status_code=500,
             detail=f"Registration failed: {str(error)}"
         )
-    
+       
 # ============================================================
 # LOGIN
 # ============================================================
