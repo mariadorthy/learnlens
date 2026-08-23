@@ -452,63 +452,97 @@ def register(
     data: dict,
     db: Session = Depends(get_db)
 ):
+    try:
+        username = str(
+            data.get("username", "")
+        ).strip().lower()
 
-    username = str(
-        data.get("username", "")
-    ).strip().lower()
+        password = str(
+            data.get("password", "")
+        )
 
-    password = str(
-        data.get("password", "")
-    )
+        print("REGISTER REQUEST:", username)
 
-    if not username:
+        if not username:
+            raise HTTPException(
+                status_code=400,
+                detail="Username is required"
+            )
+
+        if len(username) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Username must be at least 3 characters"
+            )
+
+        if len(password) < 6:
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be at least 6 characters"
+            )
+
+        print("Checking existing user...")
+
+        existing_student = (
+            db.query(models.Student)
+            .filter(
+                models.Student.username == username
+            )
+            .first()
+        )
+
+        if existing_student:
+            raise HTTPException(
+                status_code=409,
+                detail="Username already exists"
+            )
+
+        print("Hashing password...")
+
+        password_hash = pwd_context.hash(password)
+
+        print("Password hash created")
+
+        student = models.Student(
+            username=username,
+            password_hash=password_hash
+        )
+
+        print("Adding student to database...")
+
+        db.add(student)
+
+        print("Committing database...")
+
+        db.commit()
+
+        print("Database commit successful")
+
+        db.refresh(student)
+
+        return {
+            "success": True,
+            "message": "Account created successfully",
+            "student_id": str(student.id),
+            "username": student.username
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        print("====================================")
+        print("REGISTER ERROR")
+        print(repr(error))
+        print("====================================")
+
+        db.rollback()
+
         raise HTTPException(
-            status_code=400,
-            detail="Username is required"
+            status_code=500,
+            detail=f"Registration failed: {str(error)}"
         )
-
-    if len(username) < 3:
-        raise HTTPException(
-            status_code=400,
-            detail="Username must be at least 3 characters"
-        )
-
-    if len(password) < 6:
-        raise HTTPException(
-            status_code=400,
-            detail="Password must be at least 6 characters"
-        )
-
-    existing_student = (
-        db.query(models.Student)
-        .filter(
-            models.Student.username == username
-        )
-        .first()
-    )
-
-    if existing_student:
-        raise HTTPException(
-            status_code=409,
-            detail="Username already exists"
-        )
-
-    student = models.Student(
-        username=username,
-        password_hash=pwd_context.hash(password)
-    )
-
-    db.add(student)
-    db.commit()
-    db.refresh(student)
-
-    return {
-        "success": True,
-        "message": "Account created successfully",
-        "student_id": str(student.id),
-        "username": student.username
-    }
-
+    
 # ============================================================
 # LOGIN
 # ============================================================
