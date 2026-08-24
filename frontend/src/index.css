@@ -1151,6 +1151,9 @@ button:focus-visible {
 
 .fingerprint-card {
   padding: 20px;
+  width: auto;
+
+  display: grid;
 
   border: 1px solid rgba(255, 255, 255, 0.08);
 

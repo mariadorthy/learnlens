@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigator";
 import AdaptiveRecovery from "../components/AdaptiveRecovery";
@@ -16,9 +16,9 @@ function TheoryAssessment({
 
   const theoryQuestions = concept?.theoryQuestions || [];
 
-  // ------------------------------------------------------------
+  // ============================================================
   // STATE
-  // ------------------------------------------------------------
+  // ============================================================
 
   const [questionIndex, setQuestionIndex] = useState(0);
 
@@ -26,163 +26,321 @@ function TheoryAssessment({
 
   const [result, setResult] = useState(null);
 
-  const [adaptiveWeakness, setAdaptiveWeakness] = useState(null);
+  const [adaptiveWeakness, setAdaptiveWeakness] =
+    useState(null);
 
   const [saving, setSaving] = useState(false);
 
-  const [loadingProgress, setLoadingProgress] = useState(true);
+  const [loadingProgress, setLoadingProgress] =
+    useState(true);
 
-  const [completedIds, setCompletedIds] = useState(new Set());
+  const [completedIds, setCompletedIds] =
+    useState(() => new Set());
 
-  const [questionScores, setQuestionScores] = useState({});
+  const [questionScores, setQuestionScores] =
+    useState({});
+
+  const [questionAttempts, setQuestionAttempts] =
+    useState({});
 
   const [recallScore, setRecallScore] = useState(0);
 
-  // false = first attempt
-  // true  = retesting weak questions
   const [isRetest, setIsRetest] = useState(false);
 
-  // ------------------------------------------------------------
-  // MEMOIZED SCORE
-  // ------------------------------------------------------------
+  // ============================================================
+  // CALCULATE RECALL SCORE
+  // ============================================================
+
+  const calculateRecallScore = useCallback(
+    (scores = {}) => {
+      if (!theoryQuestions.length) {
+        return 0;
+      }
+
+      const total = theoryQuestions.reduce(
+        (sum, question) => {
+          return (
+            sum +
+            Number(scores[question.id] ?? 0)
+          );
+        },
+        0
+      );
+
+      return Math.round(
+        total / theoryQuestions.length
+      );
+    },
+    [theoryQuestions]
+  );
+
+  // ============================================================
+  // KEEP RECALL SCORE IN SYNC
+  // ============================================================
 
   const calculatedRecallScore = useMemo(() => {
-    if (!theoryQuestions.length) {
-      return 0;
-    }
+    return calculateRecallScore(questionScores);
+  }, [
+    calculateRecallScore,
+    questionScores,
+  ]);
 
-    const total = theoryQuestions.reduce((sum, question) => {
-      return sum + Number(questionScores[question.id] ?? 0);
-    }, 0);
-
-    return Math.round(total / theoryQuestions.length);
-  }, [questionScores, theoryQuestions]);
-
-  // Keep displayed score synchronized.
   useEffect(() => {
     setRecallScore(calculatedRecallScore);
   }, [calculatedRecallScore]);
 
-  // ------------------------------------------------------------
-  // CALCULATE SCORE FROM ANY SCORE OBJECT
-  // ------------------------------------------------------------
+  // ============================================================
+  // BUILD COMPLETED IDS FROM SCORES
+  // ============================================================
 
-  const calculateRecallScore = (scores) => {
-    if (!theoryQuestions.length) {
-      return 0;
-    }
-
-    const total = theoryQuestions.reduce((sum, question) => {
-      return sum + Number(scores[question.id] ?? 0);
-    }, 0);
-
-    return Math.round(total / theoryQuestions.length);
-  };
-
-  // ------------------------------------------------------------
-  // FIND WEAKEST QUESTION
-  // ------------------------------------------------------------
-
-  const findWeakestQuestion = (scores) => {
-    const weakQuestions = theoryQuestions.filter((question) => {
-      return Number(scores[question.id] ?? 0) < MASTERY_THRESHOLD;
-    });
-
-    if (weakQuestions.length === 0) {
-      return null;
-    }
-
-    return weakQuestions.reduce((weakest, current) => {
-      const weakestScore = Number(
-        scores[weakest.id] ?? 0
+  const getCompletedIdsFromScores = useCallback(
+    (scores = {}) => {
+      return new Set(
+        theoryQuestions
+          .filter(
+            (question) =>
+              Number(
+                scores[question.id] ?? 0
+              ) >= MASTERY_THRESHOLD
+          )
+          .map((question) => question.id)
       );
+    },
+    [theoryQuestions]
+  );
 
-      const currentScore = Number(
-        scores[current.id] ?? 0
-      );
+  // ============================================================
+  // BUILD KNOWLEDGE FINGERPRINT
+  // ============================================================
 
-      return currentScore < weakestScore
-        ? current
-        : weakest;
-    });
-  };
+  const buildKnowledgeFingerprint = useCallback(
+    (newRecallScore, scores) => {
+      const existingFingerprint =
+        student?.knowledgeFingerprint ||
+        student?.knowledge_fingerprint ||
+        concept?.knowledgeFingerprint ||
+        concept?.knowledge_fingerprint ||
+        {};
 
-  // ------------------------------------------------------------
-  // FIND NEXT WEAK QUESTION
-  // ------------------------------------------------------------
+      const correct =
+        theoryQuestions.filter(
+          (question) =>
+            Number(
+              scores[question.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        ).length;
 
-  const findNextWeakQuestion = (
-    scores,
-    currentIndex = -1
-  ) => {
-    return theoryQuestions.findIndex(
-      (question, index) =>
-        index > currentIndex &&
-        Number(scores[question.id] ?? 0) <
-          MASTERY_THRESHOLD
-    );
-  };
+      const total = theoryQuestions.length;
 
-  // ------------------------------------------------------------
-  // OPEN QUESTION
-  // ------------------------------------------------------------
-
-  const openQuestion = (index) => {
-    if (
-      index < 0 ||
-      index >= theoryQuestions.length
-    ) {
-      return;
-    }
-
-    setQuestionIndex(index);
-    setSelectedAnswer(null);
-    setResult(null);
-  };
-
-  // ------------------------------------------------------------
-  // QUESTION NAVIGATOR
-  // ------------------------------------------------------------
-
-  const handleQuestionSelect = (index) => {
-    // Do not allow navigation while saving.
-    if (saving) {
-      return;
-    }
-
-    openQuestion(index);
-  };
-
-  // ------------------------------------------------------------
-  // GET ADAPTIVE WEAKNESS
-  // ------------------------------------------------------------
-
-  const getWeakness = (question) => {
-    if (!question) {
       return {
-        type: "general_recall",
-        title: "Strengthen your recall",
-        description:
-          "Review the concept and practice another recall challenge.",
+        recall: {
+          score: Number(newRecallScore ?? 0),
+          correct,
+          total,
+        },
+
+        explain:
+          existingFingerprint.explain ?? {
+            score: 0,
+            correct: 0,
+            total: 0,
+          },
+
+        predict:
+          existingFingerprint.predict ?? {
+            score: 0,
+            correct: 0,
+            total: 0,
+          },
+
+        implement:
+          existingFingerprint.implement ?? {
+            score: 0,
+            correct: 0,
+            total: 0,
+          },
+
+        debug:
+          existingFingerprint.debug ?? {
+            score: 0,
+            correct: 0,
+            total: 0,
+          },
+
+        apply:
+          existingFingerprint.apply ?? {
+            score: 0,
+            correct: 0,
+            total: 0,
+          },
       };
-    }
+    },
+    [
+      concept,
+      student,
+      theoryQuestions,
+    ]
+  );
 
-    return (
-      theoryWeaknesses[question.id] || {
-        type: "general_recall",
-        title: "Strengthen your recall",
-        description:
-          "Review the concept and practice another recall challenge.",
+  // ============================================================
+  // GET WEAKNESS
+  // ============================================================
+
+  const getWeakness = useCallback(
+    (question) => {
+      if (!question) {
+        return {
+          type: "general_recall",
+          title: "Strengthen your recall",
+          description:
+            "Review the concept and practice another recall challenge.",
+        };
       }
-    );
-  };
 
-  // ------------------------------------------------------------
+      return (
+        theoryWeaknesses[question.id] || {
+          type: "general_recall",
+          title: "Strengthen your recall",
+          description:
+            "Review the concept and practice another recall challenge.",
+        }
+      );
+    },
+    []
+  );
+
+  // ============================================================
+  // FIND FIRST UNMASTERED
+  // ============================================================
+
+  const findFirstUnmasteredQuestion =
+    useCallback(
+      (scores = {}) => {
+        return theoryQuestions.findIndex(
+          (question) =>
+            Number(
+              scores[question.id] ?? 0
+            ) < MASTERY_THRESHOLD
+        );
+      },
+      [theoryQuestions]
+    );
+
+  // ============================================================
+  // FIND NEXT UNMASTERED
+  // ============================================================
+
+  const findNextUnmasteredQuestion =
+    useCallback(
+      (scores = {}, currentIndex = -1) => {
+        return theoryQuestions.findIndex(
+          (question, index) =>
+            index > currentIndex &&
+            Number(
+              scores[question.id] ?? 0
+            ) < MASTERY_THRESHOLD
+        );
+      },
+      [theoryQuestions]
+    );
+
+  // ============================================================
+  // FIND WEAKEST QUESTION
+  // ============================================================
+
+  const findWeakestQuestion = useCallback(
+    (scores = {}) => {
+      const weakQuestions =
+        theoryQuestions.filter(
+          (question) =>
+            Number(
+              scores[question.id] ?? 0
+            ) < MASTERY_THRESHOLD
+        );
+
+      if (!weakQuestions.length) {
+        return null;
+      }
+
+      return weakQuestions.reduce(
+        (weakest, current) => {
+          const weakestScore = Number(
+            scores[weakest.id] ?? 0
+          );
+
+          const currentScore = Number(
+            scores[current.id] ?? 0
+          );
+
+          return currentScore < weakestScore
+            ? current
+            : weakest;
+        }
+      );
+    },
+    [theoryQuestions]
+  );
+
+  // ============================================================
+  // OPEN QUESTION
+  // ============================================================
+
+  const openQuestion = useCallback(
+    (index, scores = questionScores) => {
+      if (
+        index < 0 ||
+        index >= theoryQuestions.length
+      ) {
+        return;
+      }
+
+      const targetQuestion =
+        theoryQuestions[index];
+
+      if (!targetQuestion) {
+        return;
+      }
+
+      const targetScore = Number(
+        scores[targetQuestion.id] ?? 0
+      );
+
+      // Never open a mastered question.
+      if (
+        targetScore >= MASTERY_THRESHOLD
+      ) {
+        console.log(
+          "BLOCKED MASTERED QUESTION:",
+          targetQuestion.id
+        );
+        return;
+      }
+
+      console.log(
+        "OPENING QUESTION:",
+        targetQuestion.id
+      );
+
+      setQuestionIndex(index);
+      setSelectedAnswer(null);
+      setResult(null);
+    },
+    [
+      questionScores,
+      theoryQuestions,
+    ]
+  );
+
+  // ============================================================
   // LOAD EXISTING PROGRESS
-  // ------------------------------------------------------------
+  // ============================================================
 
   useEffect(() => {
-    if (!student?.id || !concept?.id) {
+    if (
+      !student?.id ||
+      !concept?.id ||
+      !theoryQuestions.length
+    ) {
       setLoadingProgress(false);
       return;
     }
@@ -214,23 +372,65 @@ function TheoryAssessment({
           data
         );
 
-        const loadedCompletedIds = new Set(
-          data.completed_question_ids || []
-        );
+        // --------------------------------------------------------
+        // NORMALIZE API DATA
+        // --------------------------------------------------------
 
         const loadedScores =
-          data.question_scores || {};
+          data?.question_scores &&
+          typeof data.question_scores ===
+            "object"
+            ? data.question_scores
+            : {};
 
-        setCompletedIds(loadedCompletedIds);
-        setQuestionScores(loadedScores);
+        const loadedAttempts =
+          data?.question_attempts &&
+          typeof data.question_attempts ===
+            "object"
+            ? data.question_attempts
+            : {};
+
+        // --------------------------------------------------------
+        // COMPLETED IDS
+        // --------------------------------------------------------
+
+        const loadedCompletedIds =
+          getCompletedIdsFromScores(
+            loadedScores
+          );
+
+        // --------------------------------------------------------
+        // CALCULATE RECALL
+        // --------------------------------------------------------
 
         const loadedRecallScore =
-          calculateRecallScore(loadedScores);
-
-        setRecallScore(loadedRecallScore);
+          calculateRecallScore(
+            loadedScores
+          );
 
         console.log(
-          "LOADED RECALL SCORE:",
+          "LOADED SCORES:",
+          loadedScores
+        );
+
+        console.log(
+          "LOADED RECALL:",
+          loadedRecallScore
+        );
+
+        setQuestionScores(
+          loadedScores
+        );
+
+        setQuestionAttempts(
+          loadedAttempts
+        );
+
+        setCompletedIds(
+          loadedCompletedIds
+        );
+
+        setRecallScore(
           loadedRecallScore
         );
 
@@ -243,7 +443,7 @@ function TheoryAssessment({
           MASTERY_THRESHOLD
         ) {
           console.log(
-            "RECALL ALREADY MASTERED → MOVING TO EXPLAIN"
+            "RECALL ALREADY MASTERED"
           );
 
           onComplete();
@@ -251,44 +451,39 @@ function TheoryAssessment({
         }
 
         // --------------------------------------------------------
-        // FIND INCOMPLETE QUESTION
+        // FIND FIRST UNMASTERED
         // --------------------------------------------------------
 
-        const nextIncompleteIndex =
-          theoryQuestions.findIndex(
-            (question) =>
-              !loadedCompletedIds.has(
-                question.id
-              )
+        const firstUnmastered =
+          findFirstUnmasteredQuestion(
+            loadedScores
           );
 
-        if (nextIncompleteIndex !== -1) {
+        if (firstUnmastered !== -1) {
           console.log(
-            "OPENING INCOMPLETE QUESTION:",
-            nextIncompleteIndex
+            "FIRST UNMASTERED:",
+            firstUnmastered
           );
 
           setQuestionIndex(
-            nextIncompleteIndex
+            firstUnmastered
           );
 
           return;
         }
 
         // --------------------------------------------------------
-        // ALL QUESTIONS COMPLETED BUT NOT MASTERED
+        // FALLBACK
         // --------------------------------------------------------
 
-        console.log(
-          "ALL RECALL QUESTIONS COMPLETED BUT MASTERY NOT REACHED"
-        );
+        const weakest =
+          findWeakestQuestion(
+            loadedScores
+          );
 
-        const weakestQuestion =
-          findWeakestQuestion(loadedScores);
-
-        if (weakestQuestion) {
+        if (weakest) {
           setAdaptiveWeakness(
-            getWeakness(weakestQuestion)
+            getWeakness(weakest)
           );
         }
       } catch (error) {
@@ -309,14 +504,21 @@ function TheoryAssessment({
       cancelled = true;
     };
   }, [
-    student?.id,
-    concept?.id,
     API_URL,
+    calculateRecallScore,
+    concept?.id,
+    findFirstUnmasteredQuestion,
+    findWeakestQuestion,
+    getCompletedIdsFromScores,
+    getWeakness,
+    onComplete,
+    student?.id,
+    theoryQuestions,
   ]);
 
-  // ------------------------------------------------------------
-  // SAFETY CHECKS
-  // ------------------------------------------------------------
+  // ============================================================
+  // SAFETY CHECK
+  // ============================================================
 
   if (!student?.id) {
     return (
@@ -377,9 +579,9 @@ function TheoryAssessment({
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // CURRENT QUESTION
-  // ------------------------------------------------------------
+  // ============================================================
 
   const question =
     theoryQuestions[questionIndex];
@@ -392,7 +594,7 @@ function TheoryAssessment({
           className="back-button"
           onClick={onBack}
         >
-          ← Back
+          ← Back to learning
         </button>
 
         <h1>
@@ -402,9 +604,9 @@ function TheoryAssessment({
     );
   }
 
-  // ------------------------------------------------------------
+  // ============================================================
   // CHECK ANSWER
-  // ------------------------------------------------------------
+  // ============================================================
 
   const checkAnswer = async () => {
     if (
@@ -426,33 +628,146 @@ function TheoryAssessment({
 
     const score = isCorrect ? 100 : 0;
 
-    // Show immediate result.
-    setResult({
-      correct: isCorrect,
-      message: isCorrect
-        ? "Correct!"
-        : "Not quite. Try again.",
-    });
+    // ----------------------------------------------------------
+    // PREVIOUS SCORE
+    // ----------------------------------------------------------
+
+    const previousScore = Number(
+      questionScores[question.id] ?? 0
+    );
 
     // ----------------------------------------------------------
-    // CREATE UPDATED SCORE IMMEDIATELY
+    // NEVER RE-ANSWER MASTERED QUESTION
+    // ----------------------------------------------------------
+
+    if (
+      previousScore >=
+      MASTERY_THRESHOLD
+    ) {
+      console.log(
+        "MASTERED QUESTION - IGNORING:",
+        question.id
+      );
+
+      setSelectedAnswer(null);
+      setResult(null);
+
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // ATTEMPTS
+    // ----------------------------------------------------------
+
+    const attemptNumber =
+      Number(
+        questionAttempts[
+          question.id
+        ] ?? 0
+      ) + 1;
+
+    const updatedAttempts = {
+      ...questionAttempts,
+      [question.id]: attemptNumber,
+    };
+
+    // ----------------------------------------------------------
+    // SCORE
+    //
+    // IMPORTANT:
+    // Correct = 100
+    // Incorrect = 0
+    //
+    // A previous 100 is never overwritten.
     // ----------------------------------------------------------
 
     const updatedScores = {
       ...questionScores,
-      [question.id]: score,
+      [question.id]: Math.max(
+        previousScore,
+        score
+      ),
     };
 
     const updatedRecallScore =
-      calculateRecallScore(updatedScores);
+      calculateRecallScore(
+        updatedScores
+      );
+
+    // ----------------------------------------------------------
+    // UPDATE UI IMMEDIATELY
+    // ----------------------------------------------------------
+
+    setQuestionAttempts(
+      updatedAttempts
+    );
+
+    setQuestionScores(
+      updatedScores
+    );
+
+    setRecallScore(
+      updatedRecallScore
+    );
+
+    if (
+      updatedScores[question.id] >=
+      MASTERY_THRESHOLD
+    ) {
+      setCompletedIds(
+        (previous) => {
+          const updated =
+            new Set(previous);
+
+          updated.add(
+            question.id
+          );
+
+          return updated;
+        }
+      );
+    }
+
+    // ----------------------------------------------------------
+    // RESULT
+    // ----------------------------------------------------------
+
+    setResult({
+      correct: isCorrect,
+      message: isCorrect
+        ? "Correct!"
+        : "Not quite. Review the weakness and try again.",
+    });
+
+    // ----------------------------------------------------------
+    // WEAKNESS
+    // ----------------------------------------------------------
+
+    const weakness =
+      getWeakness(question);
+
+    const mistakeType = isCorrect
+      ? "none"
+      : weakness.type ||
+        "incorrect_theory_answer";
+
+    // ----------------------------------------------------------
+    // KNOWLEDGE FINGERPRINT
+    // ----------------------------------------------------------
+
+    const knowledgeFingerprint =
+      buildKnowledgeFingerprint(
+        updatedRecallScore,
+        updatedScores
+      );
 
     console.log(
-      "ANSWER:",
+      "QUESTION:",
       question.id
     );
 
     console.log(
-      "ANSWER CORRECT:",
+      "CORRECT:",
       isCorrect
     );
 
@@ -462,31 +777,17 @@ function TheoryAssessment({
     );
 
     console.log(
-      "UPDATED RECALL SCORE:",
+      "UPDATED RECALL:",
       updatedRecallScore
     );
 
-    // Update React immediately.
-    setQuestionScores(updatedScores);
-    setRecallScore(updatedRecallScore);
+    console.log(
+      "KNOWLEDGE FINGERPRINT:",
+      knowledgeFingerprint
+    );
 
     // ----------------------------------------------------------
-    // MARK CORRECT QUESTION COMPLETE
-    // ----------------------------------------------------------
-
-    if (isCorrect) {
-      setCompletedIds((previous) => {
-        const updated =
-          new Set(previous);
-
-        updated.add(question.id);
-
-        return updated;
-      });
-    }
-
-    // ----------------------------------------------------------
-    // SAVE TO BACKEND
+    // SAVE ATTEMPT
     // ----------------------------------------------------------
 
     try {
@@ -496,23 +797,38 @@ function TheoryAssessment({
         `${API_URL}/attempts`,
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
-            student_id: String(student.id),
+            // --------------------------------------------------
+            // STUDENT
+            // --------------------------------------------------
+
+            student_id: String(
+              student.id
+            ),
 
             concept: concept.id,
 
             dimension: "recall",
 
-            question_id: question.id,
+            // --------------------------------------------------
+            // QUESTION
+            // --------------------------------------------------
 
-            score,
+            question_id:
+              question.id,
 
             question:
               question.question,
+
+            // --------------------------------------------------
+            // ANSWER
+            // --------------------------------------------------
 
             student_answer:
               question.options[
@@ -524,9 +840,71 @@ function TheoryAssessment({
                 correctIndex
               ],
 
+            score,
+
+            // --------------------------------------------------
+            // ATTEMPT
+            // --------------------------------------------------
+
+            attempt_number:
+              attemptNumber,
+
             mistake: isCorrect
               ? "none"
               : "incorrect_theory_answer",
+
+            mistake_type:
+              mistakeType,
+
+            // --------------------------------------------------
+            // WEAKNESS
+            // --------------------------------------------------
+
+            weakness_type:
+              weakness.type,
+
+            weakness_title:
+              weakness.title,
+
+            weakness_description:
+              weakness.description,
+
+            // --------------------------------------------------
+            // KNOWLEDGE FINGERPRINT
+            // --------------------------------------------------
+
+            knowledge_fingerprint:
+              knowledgeFingerprint,
+
+            // --------------------------------------------------
+            // EVIDENCE
+            // --------------------------------------------------
+
+            evidence: {
+              assessment_stage:
+                "theory",
+
+              dimension:
+                "recall",
+
+              correct:
+                isCorrect,
+
+              mastery_threshold:
+                MASTERY_THRESHOLD,
+
+              previous_score:
+                previousScore,
+
+              new_score:
+                score,
+
+              recall_score:
+                updatedRecallScore,
+
+              adaptive_recovery_required:
+                !isCorrect,
+            },
           }),
         }
       );
@@ -540,17 +918,12 @@ function TheoryAssessment({
           response.status,
           responseText
         );
-
-        // Do not destroy the local state.
-        // The user can continue, but backend
-        // failure is visible in console.
-        return;
+      } else {
+        console.log(
+          "THEORY ATTEMPT SAVED:",
+          responseText
+        );
       }
-
-      console.log(
-        "THEORY ANSWER SAVED:",
-        responseText
-      );
     } catch (error) {
       console.error(
         "Theory answer network error:",
@@ -561,64 +934,202 @@ function TheoryAssessment({
     }
   };
 
-  // ------------------------------------------------------------
-  // TRY AGAIN / ADAPTIVE RECOVERY
-  // ------------------------------------------------------------
+  // ============================================================
+  // TRY AGAIN
+  // ============================================================
 
   const tryAgain = () => {
-    console.log(
-      "CURRENT QUESTION:",
-      question
-    );
-
     const weakness =
       getWeakness(question);
+
+    console.log(
+      "STARTING ADAPTIVE RECOVERY:",
+      question.id
+    );
 
     console.log(
       "WEAKNESS:",
       weakness
     );
 
-    setAdaptiveWeakness(weakness);
+    setAdaptiveWeakness(
+      weakness
+    );
   };
 
-  // ------------------------------------------------------------
-  // MOVE AFTER CORRECT ANSWER
-  // ------------------------------------------------------------
+  // ============================================================
+  // CONTINUE AFTER CORRECT ANSWER
+  // ============================================================
 
-  const continueToNextQuestion = () => {
-    if (!result?.correct) {
-      return;
-    }
+  const continueToNextQuestion =
+    () => {
+      if (!result?.correct) {
+        return;
+      }
 
-    // ----------------------------------------------------------
-    // RETEST MODE
-    // ----------------------------------------------------------
-
-    if (isRetest) {
       console.log(
-        "RETEST CURRENT SCORES:",
-        questionScores
+        "================================="
       );
 
-      const nextWeakIndex =
-        findNextWeakQuestion(
-          questionScores,
-          questionIndex
+      console.log(
+        "CONTINUING AFTER CORRECT ANSWER"
+      );
+
+      // --------------------------------------------------------
+      // ALWAYS USE LATEST SCORES
+      // --------------------------------------------------------
+
+      const finalScores = {
+        ...questionScores,
+        [question.id]: 100,
+      };
+
+      const finalRecallScore =
+        calculateRecallScore(
+          finalScores
         );
 
-      if (nextWeakIndex !== -1) {
+      const finalCompletedIds =
+        getCompletedIdsFromScores(
+          finalScores
+        );
+
+      // --------------------------------------------------------
+      // UPDATE STATE
+      // --------------------------------------------------------
+
+      setQuestionScores(
+        finalScores
+      );
+
+      setCompletedIds(
+        finalCompletedIds
+      );
+
+      setRecallScore(
+        finalRecallScore
+      );
+
+      setSelectedAnswer(null);
+      setResult(null);
+
+      console.log(
+        "FINAL SCORES:",
+        finalScores
+      );
+
+      console.log(
+        "FINAL RECALL:",
+        finalRecallScore
+      );
+
+      // --------------------------------------------------------
+      // MASTERY CHECK
+      // --------------------------------------------------------
+
+      if (
+        finalRecallScore >=
+        MASTERY_THRESHOLD
+      ) {
         console.log(
-          "NEXT WEAK QUESTION:",
-          nextWeakIndex
+          "RECALL MASTERED → EXPLAIN"
         );
 
-        openQuestion(nextWeakIndex);
+        onComplete();
+
         return;
       }
 
       // --------------------------------------------------------
-      // NO MORE WEAK QUESTIONS AFTER CURRENT
+      // FIND NEXT UNMASTERED
+      // --------------------------------------------------------
+
+      let nextIndex =
+        findNextUnmasteredQuestion(
+          finalScores,
+          questionIndex
+        );
+
+      // --------------------------------------------------------
+      // IF NONE AFTER CURRENT, WRAP AROUND
+      // --------------------------------------------------------
+
+      if (nextIndex === -1) {
+        nextIndex =
+          findFirstUnmasteredQuestion(
+            finalScores
+          );
+      }
+
+      // --------------------------------------------------------
+      // OPEN NEXT QUESTION
+      // --------------------------------------------------------
+
+      if (nextIndex !== -1) {
+        console.log(
+          "NEXT QUESTION:",
+          nextIndex
+        );
+
+        setIsRetest(false);
+
+        openQuestion(
+          nextIndex,
+          finalScores
+        );
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // FALLBACK: FIND WEAKEST
+      // --------------------------------------------------------
+
+      const weakest =
+        findWeakestQuestion(
+          finalScores
+        );
+
+      if (weakest) {
+        console.log(
+          "STARTING RECOVERY:",
+          weakest.id
+        );
+
+        setAdaptiveWeakness(
+          getWeakness(weakest)
+        );
+      }
+    };
+
+  // ============================================================
+  // ADAPTIVE RECOVERY COMPLETE
+  // ============================================================
+
+  const handleRecoveryComplete =
+    () => {
+      console.log(
+        "================================="
+      );
+
+      console.log(
+        "ADAPTIVE RECOVERY COMPLETE"
+      );
+
+      // --------------------------------------------------------
+      // CLOSE RECOVERY
+      // --------------------------------------------------------
+
+      setAdaptiveWeakness(null);
+
+      setSelectedAnswer(null);
+
+      setResult(null);
+
+      setIsRetest(true);
+
+      // --------------------------------------------------------
+      // USE CURRENT SCORES
       // --------------------------------------------------------
 
       const currentScore =
@@ -626,241 +1137,133 @@ function TheoryAssessment({
           questionScores
         );
 
-      setRecallScore(currentScore);
-
-      console.log(
-        "RETEST FINAL SCORE:",
+      setRecallScore(
         currentScore
       );
+
+      console.log(
+        "RECALL AFTER RECOVERY:",
+        currentScore
+      );
+
+      // --------------------------------------------------------
+      // IF ALREADY MASTERED
+      // --------------------------------------------------------
 
       if (
         currentScore >=
         MASTERY_THRESHOLD
       ) {
         console.log(
-          "RETEST MASTERED → MOVING TO EXPLAIN"
+          "RECOVERY CAUSED MASTERY → EXPLAIN"
         );
 
         onComplete();
+
         return;
       }
 
       // --------------------------------------------------------
-      // STILL NOT MASTERED
+      // FIND WEAKEST UNMASTERED QUESTION
       // --------------------------------------------------------
 
-      const weakestQuestion =
+      const weakest =
         findWeakestQuestion(
           questionScores
         );
 
-      if (weakestQuestion) {
+      if (!weakest) {
         console.log(
-          "RETEST STILL WEAK:",
-          weakestQuestion.id
+          "NO UNMASTERED QUESTION"
         );
 
-        setAdaptiveWeakness(
-          getWeakness(weakestQuestion)
-        );
+        return;
       }
 
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // NORMAL MODE
-    // ----------------------------------------------------------
-
-    const updatedCompletedIds =
-      new Set(completedIds);
-
-    // ----------------------------------------------------------
-    // FIND NEXT INCOMPLETE QUESTION
-    // ----------------------------------------------------------
-
-    const nextIndex =
-      theoryQuestions.findIndex(
-        (q, index) =>
-          index > questionIndex &&
-          !updatedCompletedIds.has(q.id)
-      );
-
-    if (nextIndex !== -1) {
-      openQuestion(nextIndex);
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // CHECK ALL QUESTIONS
-    // ----------------------------------------------------------
-
-    const allCompleted =
-      theoryQuestions.every((q) =>
-        updatedCompletedIds.has(q.id)
-      );
-
-    if (!allCompleted) {
-      const firstIncompleteIndex =
+      const weakestIndex =
         theoryQuestions.findIndex(
           (q) =>
-            !updatedCompletedIds.has(
-              q.id
-            )
+            q.id === weakest.id
         );
 
       if (
-        firstIncompleteIndex !== -1
+        weakestIndex === -1
       ) {
-        openQuestion(
-          firstIncompleteIndex
-        );
+        return;
       }
 
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // ALL QUESTIONS COMPLETE
-    //
-    // IMPORTANT:
-    // Use the current question score directly
-    // because React state may still be stale.
-    // ----------------------------------------------------------
-
-    const finalScores = {
-      ...questionScores,
-      [question.id]:
-        Number(
-          questionScores[question.id] ??
-            0
-        ),
-    };
-
-    const overallScore =
-      calculateRecallScore(
-        finalScores
-      );
-
-    setRecallScore(overallScore);
-
-    console.log(
-      "ALL QUESTIONS COMPLETE"
-    );
-
-    console.log(
-      "FINAL SCORES:",
-      finalScores
-    );
-
-    console.log(
-      "FINAL RECALL SCORE:",
-      overallScore
-    );
-
-    // ----------------------------------------------------------
-    // MASTERED
-    // ----------------------------------------------------------
-
-    if (
-      overallScore >=
-      MASTERY_THRESHOLD
-    ) {
       console.log(
-        "RECALL MASTERED → MOVING TO EXPLAIN"
+        "TARGETED RETEST:",
+        weakest.id
       );
 
-      onComplete();
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // NOT MASTERED
-    // ----------------------------------------------------------
-
-    console.log(
-      "RECALL NOT MASTERED → ADAPTIVE RECOVERY"
-    );
-
-    const weakestQuestion =
-      findWeakestQuestion(
-        finalScores
-      );
-
-    if (weakestQuestion) {
-      setAdaptiveWeakness(
-        getWeakness(weakestQuestion)
-      );
-    }
-  };
-
-  // ------------------------------------------------------------
-  // RECOVERY COMPLETE → RETEST
-  // ------------------------------------------------------------
-
-  const handleRecoveryComplete = () => {
-    console.log(
-      "ADAPTIVE RECOVERY COMPLETE"
-    );
-
-    setAdaptiveWeakness(null);
-
-    setSelectedAnswer(null);
-
-    setResult(null);
-
-    setIsRetest(true);
-
-    // Find weakest question using
-    // latest available scores.
-    const weakestQuestion =
-      findWeakestQuestion(
-        questionScores
-      );
-
-    if (!weakestQuestion) {
-      const currentScore =
-        calculateRecallScore(
-          questionScores
-        );
-
-      if (
-        currentScore >=
-        MASTERY_THRESHOLD
-      ) {
-        onComplete();
-      }
-
-      return;
-    }
-
-    const weakestIndex =
-      theoryQuestions.findIndex(
-        (q) =>
-          q.id ===
-          weakestQuestion.id
-      );
-
-    if (weakestIndex !== -1) {
-      console.log(
-        "STARTING RETEST AT:",
-        weakestQuestion.id
-      );
+      // --------------------------------------------------------
+      // OPEN TARGETED QUESTION
+      // --------------------------------------------------------
 
       setQuestionIndex(
         weakestIndex
       );
-    }
-  };
 
-  // ------------------------------------------------------------
+      setSelectedAnswer(null);
+
+      setResult(null);
+    };
+
+  // ============================================================
+  // NAVIGATOR
+  // ============================================================
+
+  const handleQuestionSelect =
+    (index) => {
+      if (saving) {
+        return;
+      }
+
+      const targetQuestion =
+        theoryQuestions[index];
+
+      if (!targetQuestion) {
+        return;
+      }
+
+      const targetScore =
+        Number(
+          questionScores[
+            targetQuestion.id
+          ] ?? 0
+        );
+
+      if (
+        targetScore >=
+        MASTERY_THRESHOLD
+      ) {
+        console.log(
+          "NAVIGATION BLOCKED:",
+          targetQuestion.id
+        );
+
+        return;
+      }
+
+      setIsRetest(false);
+
+      openQuestion(
+        index,
+        questionScores
+      );
+    };
+
+  // ============================================================
   // RENDER
-  // ------------------------------------------------------------
+  // ============================================================
 
   return (
     <main className="theory-assessment">
 
-      {/* BACK */}
+      {/* ======================================================
+          BACK
+      ====================================================== */}
 
       <button
         type="button"
@@ -870,10 +1273,11 @@ function TheoryAssessment({
         ← Back to learning
       </button>
 
-      {/* HEADER */}
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
 
       <div className="theory-header">
-
         <p className="section-label">
           STEP 2 • THEORY ASSESSMENT
         </p>
@@ -887,13 +1291,13 @@ function TheoryAssessment({
           Predict what the program actually
           does.
         </p>
-
       </div>
 
-      {/* SCORE */}
+      {/* ======================================================
+          SCORE
+      ====================================================== */}
 
       <div className="recall-score">
-
         <strong>
           Recall Score: {recallScore}%
         </strong>
@@ -904,27 +1308,28 @@ function TheoryAssessment({
             ? " ✓ Mastered"
             : ` — ${MASTERY_THRESHOLD}% needed to continue`}
         </span>
-
       </div>
 
-      {/* RETEST BANNER */}
+      {/* ======================================================
+          RETEST BANNER
+      ====================================================== */}
 
       {isRetest && (
         <div className="retest-banner">
-
           <strong>
             🔄 Recall Retest
           </strong>
 
           <span>
-            Let's strengthen the questions
-            that need more practice.
+            Only questions that still need
+            mastery will be retested.
           </span>
-
         </div>
       )}
 
-      {/* QUESTION NAVIGATOR */}
+      {/* ======================================================
+          QUESTION NAVIGATOR
+      ====================================================== */}
 
       <AssessmentQuestionNavigator
         questions={theoryQuestions}
@@ -941,11 +1346,10 @@ function TheoryAssessment({
       ====================================================== */}
 
       {adaptiveWeakness ? (
-
         <div className="mastery-recovery">
 
           <h2>
-            You're not ready to move on yet.
+            Let's strengthen this weakness.
           </h2>
 
           <p>
@@ -964,7 +1368,9 @@ function TheoryAssessment({
           </p>
 
           <AdaptiveRecovery
-            weakness={adaptiveWeakness}
+            weakness={
+              adaptiveWeakness
+            }
             concept={concept}
             onComplete={
               handleRecoveryComplete
@@ -972,40 +1378,39 @@ function TheoryAssessment({
           />
 
         </div>
-
       ) : (
-
         /* ====================================================
-           NORMAL QUESTION UI
+           NORMAL QUESTION
         ==================================================== */
 
         <div className="theory-card">
 
-          {/* QUESTION NUMBER */}
+          {/* ==================================================
+              QUESTION NUMBER
+          ================================================== */}
 
           <div className="question-number">
-
             QUESTION{" "}
-
             {String(
               questionIndex + 1
             ).padStart(2, "0")}
-
             {" / "}
-
             {String(
               theoryQuestions.length
             ).padStart(2, "0")}
-
           </div>
 
-          {/* QUESTION */}
+          {/* ==================================================
+              QUESTION
+          ================================================== */}
 
           <h2>
             {question.question}
           </h2>
 
-          {/* CODE */}
+          {/* ==================================================
+              CODE
+          ================================================== */}
 
           {question.code && (
             <pre className="theory-code">
@@ -1015,11 +1420,12 @@ function TheoryAssessment({
             </pre>
           )}
 
-          {/* CORRECT CODE */}
+          {/* ==================================================
+              CORRECT CODE
+          ================================================== */}
 
           {result?.correct &&
             question.correctCode && (
-
               <div className="correct-code-section">
 
                 <p className="answer-label">
@@ -1028,21 +1434,23 @@ function TheoryAssessment({
 
                 <pre className="theory-code">
                   <code>
-                    {question.correctCode}
+                    {
+                      question.correctCode
+                    }
                   </code>
                 </pre>
 
               </div>
-
             )}
 
-          {/* OPTIONS */}
+          {/* ==================================================
+              OPTIONS
+          ================================================== */}
 
           <div className="theory-options">
 
             {question.options.map(
               (option, index) => {
-
                 const isSelected =
                   selectedAnswer ===
                   index;
@@ -1059,7 +1467,6 @@ function TheoryAssessment({
                   !isCorrect;
 
                 return (
-
                   <button
                     type="button"
                     key={`${question.id}-${index}`}
@@ -1083,7 +1490,6 @@ function TheoryAssessment({
                       }
                     `}
                     onClick={() => {
-
                       if (
                         !result &&
                         !saving
@@ -1092,7 +1498,6 @@ function TheoryAssessment({
                           index
                         );
                       }
-
                     }}
                     disabled={
                       !!result ||
@@ -1124,17 +1529,17 @@ function TheoryAssessment({
                     )}
 
                   </button>
-
                 );
               }
             )}
 
           </div>
 
-          {/* CHECK ANSWER */}
+          {/* ==================================================
+              CHECK ANSWER
+          ================================================== */}
 
           {!result && (
-
             <button
               type="button"
               className="primary-button"
@@ -1144,19 +1549,17 @@ function TheoryAssessment({
                 saving
               }
             >
-
               {saving
                 ? "Saving..."
                 : "Check Answer →"}
-
             </button>
-
           )}
 
-          {/* RESULT */}
+          {/* ==================================================
+              RESULT
+          ================================================== */}
 
           {result && (
-
             <div
               className={
                 result.correct
@@ -1166,21 +1569,20 @@ function TheoryAssessment({
             >
 
               <strong>
-
                 {result.correct
                   ? "✓ Correct"
                   : "✕ Incorrect"}
-
               </strong>
 
               <p>
                 {result.message}
               </p>
 
-              {/* SHOW CORRECT ANSWER */}
+              {/* ----------------------------------------------
+                  WRONG ANSWER
+              ---------------------------------------------- */}
 
               {!result.correct && (
-
                 <div className="correct-answer-display">
 
                   <span>
@@ -1188,16 +1590,13 @@ function TheoryAssessment({
                   </span>
 
                   <strong>
-
                     {String.fromCharCode(
                       65 +
                         Number(
                           question.correctAnswer
                         )
                     )}
-
                     {" — "}
-
                     {
                       question.options[
                         Number(
@@ -1205,58 +1604,50 @@ function TheoryAssessment({
                         )
                       ]
                     }
-
                   </strong>
 
                 </div>
-
               )}
 
-              {/* ADAPTIVE RECOVERY */}
+              {/* ----------------------------------------------
+                  RECOVERY
+              ---------------------------------------------- */}
 
               {!result.correct && (
-
                 <button
                   type="button"
                   className="secondary-button"
                   onClick={tryAgain}
+                  disabled={saving}
                 >
                   Strengthen This Weakness →
                 </button>
-
               )}
 
-              {/* CONTINUE */}
+              {/* ----------------------------------------------
+                  CORRECT → CONTINUE
+              ---------------------------------------------- */}
 
               {result.correct && (
-
                 <button
                   type="button"
                   className="primary-button"
                   onClick={
                     continueToNextQuestion
                   }
+                  disabled={saving}
                 >
-
                   {isRetest
                     ? "Continue Retest →"
-                    : completedIds.size <
-                      theoryQuestions.length
-                    ? "Continue →"
-                    : "Check Recall Mastery →"}
-
+                    : "Continue →"}
                 </button>
-
               )}
 
             </div>
-
           )}
 
         </div>
-
       )}
-
     </main>
   );
 }
