@@ -29,3 +29,6 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+learnlens.db
+*.db
