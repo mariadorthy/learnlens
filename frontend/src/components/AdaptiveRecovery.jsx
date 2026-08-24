@@ -21,7 +21,11 @@ function AdaptiveRecovery({
 
     if (correct) {
       setTimeout(() => {
-        onComplete();
+        onComplete({
+          dimension: "recall",
+          score: 100,
+          source: "adaptive_recovery",
+        });
       }, 700);
     }
   };

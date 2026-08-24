@@ -94,160 +94,64 @@ function Dashboard({
   // GET ADAPTIVE STATUS
   // -----------------------------------------
 
-  const getAdaptiveStatus = ({ fingerprint }) => {
-    // =========================================================
-    // NO FINGERPRINT
-    // =========================================================
-    if (!fingerprint) {
-      return {
-        status: "current",
-        progress: 0,
-        weakDimension: null,
-        nextDimension: "recall",
-        completedDimensions: 0,
-      };
-    }
+  const getAdaptiveStatus = (fingerprint) => {
+    const scores = dimensions.map(({ key }) => {
+      const data = fingerprint?.[key] ?? {};
 
-    // =========================================================
-    // BUILD DIMENSION STATE
-    // =========================================================
-    const scores = dimensions.map((dimension) => {
-      const data = fingerprint?.[dimension.key];
-
-      const rawScore = data?.score;
-      const rawCorrect = data?.correct;
-      const rawTotal = data?.total;
+      const total = Number(data.total) || 0;
 
       const score =
-        rawScore === null ||
-          rawScore === undefined ||
-          rawScore === ""
+        data.score === null || data.score === undefined
           ? null
-          : Number(rawScore);
-
-      const correct =
-        rawCorrect === null ||
-          rawCorrect === undefined
-          ? 0
-          : Number(rawCorrect);
-
-      const total =
-        rawTotal === null ||
-          rawTotal === undefined
-          ? 0
-          : Number(rawTotal);
-
-      const completed =
-        total === MASTERY_QUESTIONS;
+          : Number(data.score);
 
       return {
-        dimension: dimension.key,
-        score: Number.isFinite(score)
-          ? score
-          : null,
-        correct: Number.isFinite(correct)
-          ? correct
-          : 0,
-        total: Number.isFinite(total)
-          ? total
-          : 0,
-        completed,
+        dimension: key,
+        total,
+        score: Number.isFinite(score) ? score : null,
+
+        // A dimension is complete only after 6 questions
+        completed: total >= MASTERY_QUESTIONS,
       };
     });
 
-    console.log(
-      "DIMENSION STATES:",
-      scores
-    );
-
-    // =========================================================
-    // COMPLETED DIMENSIONS
-    // =========================================================
-    const completedDimensions = scores.filter(
-      (item) => item.completed
-    );
-
-    // =========================================================
-    // IMPORTANT:
-    //
-    // Find the FIRST dimension that is NOT completed.
-    //
-    // This guarantees:
-    //
-    // Recall 2/6
-    //   -> Recall remains next
-    //
-    // Recall 6/6
-    //   -> Explain becomes next
-    //
-    // Recall 6/6
-    // Explain 4/6
-    //   -> Explain remains next
-    // =========================================================
+    // First dimension that has not completed 6 questions
     const nextIncomplete = scores.find(
       (item) => !item.completed
     );
 
-    // =========================================================
-    // ALL SIX DIMENSIONS COMPLETE
-    // =========================================================
-    if (
-      completedDimensions.length ===
-      dimensions.length
-    ) {
+    // All six dimensions completed
+    if (!nextIncomplete) {
       return {
         status: "completed",
         progress: 100,
         weakDimension: null,
         nextDimension: null,
-        completedDimensions:
-          completedDimensions.length,
+        completedDimensions: dimensions.length,
       };
     }
 
-    // =========================================================
-    // CURRENT DIMENSION
-    // =========================================================
-    if (nextIncomplete) {
-      const isPartial =
-        nextIncomplete.total > 0 &&
-        nextIncomplete.total < MASTERY_QUESTIONS;
+    const completedDimensions = scores.filter(
+      (item) => item.completed
+    ).length;
 
-      return {
-        status: isPartial
-          ? "reinforcement"
-          : "current",
+    // Dimension has been started but has fewer than 6 questions
+    const isPartial =
+      nextIncomplete.total > 0 &&
+      nextIncomplete.total < MASTERY_QUESTIONS;
 
-        // Progress should represent question completion,
-        // NOT score percentage.
-        progress: Math.round(
-          (nextIncomplete.total /
-            MASTERY_QUESTIONS) *
-          100
-        ),
-
-        weakDimension: isPartial
-          ? nextIncomplete.dimension
-          : null,
-
-        nextDimension:
-          nextIncomplete.dimension,
-
-        completedDimensions:
-          completedDimensions.length,
-      };
-    }
-
-    // =========================================================
-    // FALLBACK
-    // =========================================================
     return {
-      status: "current",
-      progress: 0,
+      status: isPartial ? "reinforcement" : "current",
+      progress: Math.round(
+        (nextIncomplete.total / MASTERY_QUESTIONS) * 100
+      ),
+
+      // IMPORTANT:
+      // An incomplete dimension is NOT weak yet.
       weakDimension: null,
-      nextDimension: "recall",
-      completedDimensions:
-        completedDimensions.length,
+
+      nextDimension: nextIncomplete.dimension,
+      completedDimensions,
     };
   };
 
@@ -255,9 +159,7 @@ function Dashboard({
   // LOOP STATUS
   // -----------------------------------------
 
-  const loopStatus = getAdaptiveStatus({
-    fingerprint,
-  });
+  const loopStatus = getAdaptiveStatus(fingerprint);
 
   console.log(
     "ADAPTIVE LOOP STATUS:",
@@ -335,28 +237,19 @@ function Dashboard({
   // -----------------------------------------
 
   const handleContinueLearning = () => {
-    if (!currentConcept) {
-      return;
-    }
+    if (!currentConcept) return;
 
     const adaptiveDimension =
       currentConcept.nextDimension || "recall";
 
-    console.log(
-      "CONTINUE LEARNING:",
-      {
-        concept: currentConcept.id,
-        status: currentConcept.status,
-        weakDimension:
-          currentConcept.weakDimension,
-        nextDimension: adaptiveDimension,
-      }
-    );
-
-    onConceptSelect({
+    const selectedConcept = {
       ...currentConcept,
       adaptiveDimension,
-    });
+    };
+
+    console.log("CONTINUE LEARNING:", selectedConcept);
+
+    onConceptSelect(selectedConcept);
   };
 
   // -----------------------------------------
@@ -426,11 +319,11 @@ function Dashboard({
         <section className="current-learning">
           <div>
             <p className="section-label">
-  {currentConcept.status ===
-  "reinforcement"
-    ? "CONTINUE THIS ASSESSMENT"
-    : "CONTINUE LEARNING"}
-</p>
+              {currentConcept.status ===
+                "reinforcement"
+                ? "CONTINUE THIS ASSESSMENT"
+                : "CONTINUE LEARNING"}
+            </p>
 
             <h2>
               {currentConcept.name}
@@ -452,14 +345,12 @@ function Dashboard({
                     )}
                 </strong>
 
-                {currentConcept.status ===
-                  "reinforcement" && (
-                    <>
-                      {" "}
-                      — this is currently your
-                      weakest area.
-                    </>
-                  )}
+                {currentConcept.status === "reinforcement" && (
+                  <>
+                    {" "}
+                    — complete the remaining questions.
+                  </>
+                )}
               </p>
             )}
           </div>

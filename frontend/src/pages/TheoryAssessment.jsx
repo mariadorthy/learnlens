@@ -281,6 +281,33 @@ function TheoryAssessment({
     [theoryQuestions]
   );
 
+  const getMasteryStatus = useCallback(
+  (scores = {}) => {
+    const total = theoryQuestions.length;
+
+    const completed = theoryQuestions.filter(
+      (question) =>
+        Number(scores[question.id] ?? 0) >=
+        MASTERY_THRESHOLD
+    ).length;
+
+    const score = calculateRecallScore(scores);
+
+    return {
+      completed,
+      total,
+      score,
+      mastered:
+        total > 0 &&
+        completed === total &&
+        score >= MASTERY_THRESHOLD,
+    };
+  },
+  [
+    theoryQuestions,
+    calculateRecallScore,
+  ]
+);
   // ============================================================
   // OPEN QUESTION
   // ============================================================
@@ -378,14 +405,14 @@ function TheoryAssessment({
 
         const loadedScores =
           data?.question_scores &&
-          typeof data.question_scores ===
+            typeof data.question_scores ===
             "object"
             ? data.question_scores
             : {};
 
         const loadedAttempts =
           data?.question_attempts &&
-          typeof data.question_attempts ===
+            typeof data.question_attempts ===
             "object"
             ? data.question_attempts
             : {};
@@ -438,17 +465,27 @@ function TheoryAssessment({
         // ALREADY MASTERED
         // --------------------------------------------------------
 
-        if (
-          loadedRecallScore >=
-          MASTERY_THRESHOLD
-        ) {
-          console.log(
-            "RECALL ALREADY MASTERED"
-          );
+        const loadedCompletedCount =
+  loadedCompletedIds.size;
 
-          onComplete();
-          return;
-        }
+if (
+  loadedCompletedCount === theoryQuestions.length &&
+  loadedRecallScore >= MASTERY_THRESHOLD
+) {
+  console.log(
+    "RECALL ALREADY MASTERED"
+  );
+
+  onComplete({
+    dimension: "recall",
+    correct: loadedCompletedCount,
+    total: theoryQuestions.length,
+    score: loadedRecallScore,
+    source: "existing_progress",
+  });
+
+  return;
+}
 
         // --------------------------------------------------------
         // FIND FIRST UNMASTERED
@@ -662,7 +699,7 @@ function TheoryAssessment({
     const attemptNumber =
       Number(
         questionAttempts[
-          question.id
+        question.id
         ] ?? 0
       ) + 1;
 
@@ -749,7 +786,7 @@ function TheoryAssessment({
     const mistakeType = isCorrect
       ? "none"
       : weakness.type ||
-        "incorrect_theory_answer";
+      "incorrect_theory_answer";
 
     // ----------------------------------------------------------
     // KNOWLEDGE FINGERPRINT
@@ -832,12 +869,12 @@ function TheoryAssessment({
 
             student_answer:
               question.options[
-                selectedIndex
+              selectedIndex
               ],
 
             correct_answer:
               question.options[
-                correctIndex
+              correctIndex
               ],
 
             score,
@@ -1027,15 +1064,29 @@ function TheoryAssessment({
       // MASTERY CHECK
       // --------------------------------------------------------
 
+      const completedCount =
+        Object.values(finalScores).filter(
+          (score) => Number(score) >= MASTERY_THRESHOLD
+        ).length;
+
+      const total = theoryQuestions.length;
+      const correct = completedCount;
+
       if (
-        finalRecallScore >=
-        MASTERY_THRESHOLD
+        completedCount === total &&
+        finalRecallScore >= MASTERY_THRESHOLD
       ) {
         console.log(
           "RECALL MASTERED → EXPLAIN"
         );
 
-        onComplete();
+        onComplete({
+          dimension: "recall",
+          correct,
+          total,
+          score: finalRecallScore,
+          source: "theory_assessment",
+        });
 
         return;
       }
@@ -1150,19 +1201,32 @@ function TheoryAssessment({
       // IF ALREADY MASTERED
       // --------------------------------------------------------
 
-      if (
-        currentScore >=
-        MASTERY_THRESHOLD
-      ) {
-        console.log(
-          "RECOVERY CAUSED MASTERY → EXPLAIN"
-        );
+      const completedCount =
+  Object.values(questionScores).filter(
+    (score) => Number(score) >= MASTERY_THRESHOLD
+  ).length;
 
-        onComplete();
+const total = theoryQuestions.length;
+const correct = completedCount;
 
-        return;
-      }
+if (
+  completedCount === total &&
+  currentScore >= MASTERY_THRESHOLD
+) {
+  console.log(
+    "RECOVERY CAUSED MASTERY → EXPLAIN"
+  );
 
+  onComplete({
+    dimension: "recall",
+    correct,
+    total,
+    score: currentScore,
+    source: "adaptive_recovery",
+  });
+
+  return;
+}
       // --------------------------------------------------------
       // FIND WEAKEST UNMASTERED QUESTION
       // --------------------------------------------------------
@@ -1230,7 +1294,7 @@ function TheoryAssessment({
       const targetScore =
         Number(
           questionScores[
-            targetQuestion.id
+          targetQuestion.id
           ] ?? 0
         );
 
@@ -1304,7 +1368,7 @@ function TheoryAssessment({
 
         <span>
           {recallScore >=
-          MASTERY_THRESHOLD
+            MASTERY_THRESHOLD
             ? " ✓ Mastered"
             : ` — ${MASTERY_THRESHOLD}% needed to continue`}
         </span>
@@ -1472,21 +1536,18 @@ function TheoryAssessment({
                     key={`${question.id}-${index}`}
                     className={`
                       theory-option
-                      ${
-                        isSelected
-                          ? "selected"
-                          : ""
+                      ${isSelected
+                        ? "selected"
+                        : ""
                       }
-                      ${
-                        result &&
+                      ${result &&
                         isCorrect
-                          ? "correct"
-                          : ""
+                        ? "correct"
+                        : ""
                       }
-                      ${
-                        isWrong
-                          ? "wrong"
-                          : ""
+                      ${isWrong
+                        ? "wrong"
+                        : ""
                       }
                     `}
                     onClick={() => {
@@ -1592,16 +1653,16 @@ function TheoryAssessment({
                   <strong>
                     {String.fromCharCode(
                       65 +
-                        Number(
-                          question.correctAnswer
-                        )
+                      Number(
+                        question.correctAnswer
+                      )
                     )}
                     {" — "}
                     {
                       question.options[
-                        Number(
-                          question.correctAnswer
-                        )
+                      Number(
+                        question.correctAnswer
+                      )
                       ]
                     }
                   </strong>
