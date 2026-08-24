@@ -47,11 +47,9 @@ Adaptive Challenge
 Reassessment
       ↓
 Proof-of-Learn
-````
+```
 
 [Watch the Demo](https://canva.link/e56lve479nrlgby)
-
-```
 
 ---
 
