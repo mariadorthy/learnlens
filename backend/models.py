@@ -1,9 +1,13 @@
-from sqlalchemy import Column
-from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import Float
-from sqlalchemy import Text
-
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Float,
+    Text,
+    Boolean,
+    DateTime,
+)
+from datetime import datetime
 from database import Base
 
 
@@ -70,4 +74,28 @@ class Student(Base):
     password_hash = Column(
         String,
         nullable=False
+    )
+class LearningExecution(Base):
+    __tablename__ = "learning_executions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    student_id = Column(String, nullable=False)
+    concept = Column(String, nullable=False)
+    dimension = Column(String, nullable=False)
+
+    question_id = Column(String, nullable=True)
+
+    code = Column(Text, nullable=True)
+    output = Column(Text, nullable=True)
+    expected_output = Column(Text, nullable=True)
+
+    success = Column(Boolean, default=False)
+    score = Column(Float, nullable=True)
+
+    mistake = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
     )

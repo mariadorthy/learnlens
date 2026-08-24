@@ -156,7 +156,9 @@ def calculate_knowledge_fingerprint(
         .filter(
             models.LearningAttempt.concept == concept
         )
-        .order_by(models.LearningAttempt.id.asc())
+        .order_by(
+            models.LearningAttempt.id.asc()
+        )
         .all()
     )
 
@@ -174,57 +176,96 @@ def calculate_knowledge_fingerprint(
             fingerprint[dimension] = {
                 "score": None,
                 "status": "not_attempted",
-                "attempts": 0
+                "attempts": 0,
+                "completed": 0,
+                "total": 0,
             }
             continue
 
-        # -------------------------------------------------
-        # KEEP ONLY THE LATEST ATTEMPT FOR EACH QUESTION
-        # -------------------------------------------------
+        # -----------------------------------------------------
+        # BEST SCORE FOR EACH QUESTION
+        # -----------------------------------------------------
 
-        latest_by_question = {}
+        best_by_question = {}
 
         for attempt in dimension_attempts:
-            question_id = attempt.question_id
 
-            # If question_id exists, use it as the key
-            if question_id:
-                latest_by_question[question_id] = attempt
-            else:
-                # fallback for attempts without question_id
-                latest_by_question[attempt.id] = attempt
+            question_id = (
+                str(attempt.question_id)
+                if attempt.question_id
+                else f"attempt_{attempt.id}"
+            )
 
-        latest_attempts = list(
-            latest_by_question.values()
-        )
+            score = (
+                float(attempt.score)
+                if attempt.score is not None
+                else None
+            )
 
-        scores = [
-            attempt.score
-            for attempt in latest_attempts
-            if attempt.score is not None
-        ]
+            if score is None:
+                continue
 
-        if not scores:
+            current_best = best_by_question.get(
+                question_id
+            )
+
+            if (
+                current_best is None
+                or score > current_best
+            ):
+                best_by_question[question_id] = score
+
+        # -----------------------------------------------------
+        # NO SCORES
+        # -----------------------------------------------------
+
+        if not best_by_question:
             fingerprint[dimension] = {
                 "score": None,
                 "status": "not_attempted",
-                "attempts": 0
+                "attempts": 0,
+                "completed": 0,
+                "total": 0,
             }
             continue
 
-        average_score = sum(scores) / len(scores)
+        # -----------------------------------------------------
+        # DIMENSION SCORE
+        # -----------------------------------------------------
+
+        scores = list(best_by_question.values())
+
+        average_score = (
+            sum(scores) / len(scores)
+        )
+
+        # -----------------------------------------------------
+        # MASTERY
+        # -----------------------------------------------------
+
+        completed = sum(
+            1
+            for score in scores
+            if score >= 80
+        )
+
+        total = len(scores)
 
         if average_score >= 80:
             status = "strong"
+
         elif average_score >= 50:
             status = "moderate"
+
         else:
             status = "weak"
 
         fingerprint[dimension] = {
             "score": round(average_score),
             "status": status,
-            "attempts": len(scores)
+            "attempts": total,
+            "completed": completed,
+            "total": total,
         }
 
     return fingerprint
@@ -1008,52 +1049,211 @@ def get_progress(
     student_id: str,
     concept: str,
     dimension: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    dimension = dimension.strip().lower()
+
+    if dimension not in DIMENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Unknown learning dimension",
+                "received": dimension,
+                "supported_dimensions": DIMENSIONS,
+            },
+        )
 
     attempts = (
         db.query(models.LearningAttempt)
         .filter(
-            models.LearningAttempt.student_id == student_id
+            models.LearningAttempt.student_id == student_id,
+            models.LearningAttempt.concept == concept,
+            models.LearningAttempt.dimension == dimension,
         )
-        .filter(
-            models.LearningAttempt.concept == concept
-        )
-        .filter(
-            models.LearningAttempt.dimension == dimension
-        )
-        .order_by(
-            models.LearningAttempt.id.asc()
-        )
+        .order_by(models.LearningAttempt.id.asc())
         .all()
     )
 
+    # ---------------------------------------------------------
+    # GROUP ATTEMPTS BY QUESTION
+    # ---------------------------------------------------------
+
+    question_attempts = {}
+
+    for attempt in attempts:
+        if not attempt.question_id:
+            continue
+
+        question_id = str(attempt.question_id)
+
+        if question_id not in question_attempts:
+            question_attempts[question_id] = {
+                "question_id": question_id,
+                "attempts": 0,
+                "scores": [],
+                "latest_score": None,
+                "best_score": None,
+                "mistakes": [],
+            }
+
+        item = question_attempts[question_id]
+
+        item["attempts"] += 1
+
+        if attempt.score is not None:
+            score = float(attempt.score)
+
+            item["scores"].append(score)
+
+            # Latest submitted score
+            item["latest_score"] = score
+
+            # Best score ever achieved
+            if (
+                item["best_score"] is None
+                or score > item["best_score"]
+            ):
+                item["best_score"] = score
+
+        if attempt.mistake:
+            item["mistakes"].append(attempt.mistake)
+
+    # ---------------------------------------------------------
+    # MASTERY
+    #
+    # IMPORTANT:
+    # A question remains mastered once the student has achieved
+    # >= 80 at least once.
+    #
+    # A later failed retest does NOT remove mastery.
+    # ---------------------------------------------------------
+
     completed_question_ids = [
-        attempt.question_id
-        for attempt in attempts
+        question_id
+        for question_id, item in question_attempts.items()
         if (
-            attempt.question_id
-            and attempt.score is not None
-            and attempt.score >= 80
+            item["best_score"] is not None
+            and item["best_score"] >= 80
         )
     ]
+
+    completed_count = len(completed_question_ids)
+    question_count = len(question_attempts)
+
+    # ---------------------------------------------------------
+    # BEST SCORE PER QUESTION
+    # ---------------------------------------------------------
+
+    best_scores = [
+        item["best_score"]
+        for item in question_attempts.values()
+        if item["best_score"] is not None
+    ]
+
+    dimension_score = (
+        round(sum(best_scores) / len(best_scores))
+        if best_scores
+        else None
+    )
+
+    # ---------------------------------------------------------
+    # MASTERY STATUS
+    # ---------------------------------------------------------
+
+    if question_count == 0:
+        mastery_status = "not_started"
+
+    elif completed_count == question_count:
+        mastery_status = "mastered"
+
+    else:
+        mastery_status = "in_progress"
+
+    # ---------------------------------------------------------
+    # LAST QUESTION
+    # ---------------------------------------------------------
+
+    last_question_id = None
+
+    if attempts:
+        for attempt in reversed(attempts):
+            if attempt.question_id:
+                last_question_id = str(attempt.question_id)
+                break
 
     return {
         "student_id": student_id,
         "concept": concept,
         "dimension": dimension,
 
-        "completed_question_ids":
-            completed_question_ids,
+        # Overall dimension score
+        "score": dimension_score,
 
-        "attempt_count":
-            len(attempts),
+        # Question-level scores
+        "question_scores": {
+            question_id: item["best_score"]
+            for question_id, item in question_attempts.items()
+        },
 
-        "last_question_id": (
-            attempts[-1].question_id
-            if attempts
-            else None
+        # Useful for displaying the most recent attempt
+        "latest_question_scores": {
+            question_id: item["latest_score"]
+            for question_id, item in question_attempts.items()
+        },
+
+        "question_attempts": question_attempts,
+
+        # -----------------------------------------------------
+        # THE IMPORTANT 5 / 6 VALUES
+        # -----------------------------------------------------
+
+        "completed_question_ids": completed_question_ids,
+        "completed_count": completed_count,
+        "question_count": question_count,
+
+        "progress": {
+            "completed": completed_count,
+            "total": question_count,
+            "display": f"{completed_count}/{question_count}",
+        },
+
+        "mastery": {
+            "status": mastery_status,
+            "is_mastered": mastery_status == "mastered",
+        },
+
+        "attempt_count": len(attempts),
+        "last_question_id": last_question_id,
+    }
+
+@app.post("/execution-attempts")
+def create_execution_attempt(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    attempt = models.LearningExecution(
+        student_id=str(payload["student_id"]),
+        concept=payload["concept"],
+        dimension=payload["dimension"],
+        question_id=payload.get("question_id"),
+        code=payload.get("code", ""),
+        output=payload.get("output", ""),
+        expected_output=payload.get(
+            "expected_output",
+            "",
         ),
+        success=bool(payload.get("success", False)),
+        score=payload.get("score"),
+        mistake=payload.get("mistake"),
+    )
+
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+
+    return {
+        "id": attempt.id,
+        "success": attempt.success,
     }
 
 # ============================================================
@@ -1167,7 +1367,6 @@ def get_fingerprint(
     concept: str,
     db: Session = Depends(get_db)
 ):
-
     fingerprint = calculate_knowledge_fingerprint(
         student_id,
         concept,
@@ -1175,56 +1374,167 @@ def get_fingerprint(
     )
 
     recommendation = generate_adaptive_recommendation(
-     student_id,
-    concept,
-    fingerprint,
-    db
+        student_id,
+        concept,
+        fingerprint,
+        db
     )
 
     attempts = (
         db.query(models.LearningAttempt)
         .filter(
-            models.LearningAttempt.student_id
-            == student_id
+            models.LearningAttempt.student_id == student_id
         )
         .filter(
-            models.LearningAttempt.concept
-            == concept
+            models.LearningAttempt.concept == concept
         )
         .all()
     )
 
+    # ---------------------------------------------------------
+    # CALCULATE OVERALL QUESTION PROGRESS
+    # ---------------------------------------------------------
+
+    questions_by_dimension = {}
+
+    for attempt in attempts:
+        if not attempt.question_id:
+            continue
+
+        dimension = attempt.dimension
+        question_id = str(attempt.question_id)
+
+        if dimension not in questions_by_dimension:
+            questions_by_dimension[dimension] = {}
+
+        existing = questions_by_dimension[dimension].get(
+            question_id
+        )
+
+        score = (
+            float(attempt.score)
+            if attempt.score is not None
+            else None
+        )
+
+        if existing is None:
+            questions_by_dimension[dimension][question_id] = {
+                "best_score": score
+            }
+
+        elif score is not None:
+            current_best = existing["best_score"]
+
+            if (
+                current_best is None
+                or score > current_best
+            ):
+                existing["best_score"] = score
+
+    # ---------------------------------------------------------
+    # BUILD DIMENSION PROGRESS
+    # ---------------------------------------------------------
+
+    dimension_progress = {}
+
+    total_completed = 0
+    total_questions = 0
+
+    for dimension in DIMENSIONS:
+        questions = questions_by_dimension.get(
+            dimension,
+            {}
+        )
+
+        question_count = len(questions)
+
+        completed_count = sum(
+            1
+            for item in questions.values()
+            if (
+                item["best_score"] is not None
+                and item["best_score"] >= 80
+            )
+        )
+
+        total_questions += question_count
+        total_completed += completed_count
+
+        dimension_progress[dimension] = {
+            "completed": completed_count,
+            "total": question_count,
+            "display": (
+                f"{completed_count}/{question_count}"
+                if question_count > 0
+                else "0/0"
+            ),
+            "mastered": (
+                question_count > 0
+                and completed_count == question_count
+            ),
+        }
+
+    # ---------------------------------------------------------
+    # OVERALL MASTERY
+    # ---------------------------------------------------------
+
+    overall_mastered = (
+        total_questions > 0
+        and total_completed == total_questions
+    )
+
     return {
+        "student_id": student_id,
+        "concept": concept,
 
-        "student_id":
-            student_id,
+        "fingerprint": fingerprint,
 
-        "concept":
-            concept,
+        "dimension_progress": dimension_progress,
 
-        "fingerprint":
-            fingerprint,
+        "progress": {
+            "completed": total_completed,
+            "total": total_questions,
+            "display": (
+                f"{total_completed}/{total_questions}"
+                if total_questions > 0
+                else "0/0"
+            ),
+        },
 
-        "attempt_count":
-            len(attempts),
+        "mastery": {
+            "status": (
+                "mastered"
+                if overall_mastered
+                else (
+                    "in_progress"
+                    if total_questions > 0
+                    else "not_started"
+                )
+            ),
+            "is_mastered": overall_mastered,
+        },
 
-        "recommendation":
-            recommendation
+        "attempt_count": len(attempts),
+
+        "recommendation": recommendation,
     }
-
 
 # ============================================================
 # GET ATTEMPTS
 # ============================================================
 
-@app.get("/attempts")
+@app.get("/attempts/{student_id}")
 def get_attempts(
+    student_id: str,
     db: Session = Depends(get_db)
 ):
-
     attempts = (
-        db.query(
-            models.LearningAttempt
+        db.query(models.LearningAttempt)
+        .filter(
+            models.LearningAttempt.student_id == student_id
+        )
+        .order_by(
+            models.LearningAttempt.id.asc()
         )
         .all()
     )
@@ -1232,50 +1542,41 @@ def get_attempts(
     result = []
 
     for attempt in attempts:
-
         ai_analysis = None
 
         if attempt.ai_analysis:
-
             try:
-
                 ai_analysis = json.loads(
                     attempt.ai_analysis
                 )
-
             except json.JSONDecodeError:
-
                 ai_analysis = None
 
         result.append({
-
-            "id":
-                attempt.id,
-
-            "student_id":
-                attempt.student_id,
-
-            "concept":
-                attempt.concept,
-
-            "dimension":
-                attempt.dimension,
-
-            "score":
-                attempt.score,
-
-            "mistake":
-                attempt.mistake,
-
-            "recommendation":
-                attempt.recommendation,
-
-            "ai_analysis":
-                ai_analysis
+            "id": attempt.id,
+            "student_id": attempt.student_id,
+            "concept": attempt.concept,
+            "dimension": attempt.dimension,
+            "question_id": (
+                str(attempt.question_id)
+                if attempt.question_id is not None
+                else None
+            ),
+            "score": (
+                float(attempt.score)
+                if attempt.score is not None
+                else None
+            ),
+            "mistake": attempt.mistake,
+            "recommendation": attempt.recommendation,
+            "ai_analysis": ai_analysis,
         })
 
-    return result
-
+    return {
+        "student_id": student_id,
+        "attempts": result,
+        "attempt_count": len(result),
+    }
 
 # ============================================================
 # ANALYZE MISTAKE
