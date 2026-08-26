@@ -6,11 +6,23 @@ import KnowledgeFingerprint from "../components/KnowledgeFingerprint";
 function Dashboard({
   concepts,
   student,
+  knowledgeFingerprint,
   onConceptSelect,
   refreshFingerprint,
 }) {
-  const [fingerprint, setFingerprint] = useState(null);
+  const [fingerprint, setFingerprint] = useState(
+    knowledgeFingerprint ?? null
+  );
+  useEffect(() => {
+    if (knowledgeFingerprint) {
+      console.log(
+        "KNOWLEDGE FINGERPRINT RECEIVED:",
+        knowledgeFingerprint
+      );
 
+      setFingerprint(knowledgeFingerprint);
+    }
+  }, [knowledgeFingerprint]);
   const API_URL = import.meta.env.VITE_API_URL;
 
   // -----------------------------------------
@@ -45,7 +57,6 @@ function Dashboard({
   ];
 
   const MASTERY_THRESHOLD = 80;
-  const MASTERY_QUESTIONS = 6;
 
   // -----------------------------------------
   // LOAD KNOWLEDGE FINGERPRINT
@@ -72,11 +83,32 @@ function Dashboard({
         const data = await response.json();
 
         console.log(
+          "================================="
+        );
+        console.log(
+          "RAW FINGERPRINT FROM BACKEND:",
+          JSON.stringify(
+            data.fingerprint,
+            null,
+            2
+          )
+        );
+        console.log(
+          "RECALL FROM BACKEND:",
+          data.fingerprint?.recall
+        );
+        console.log(
+          "================================="
+        );
+
+        console.log(
           "Student fingerprint:",
           data.fingerprint
         );
 
-        setFingerprint(data.fingerprint ?? null);
+        setFingerprint(
+          data.fingerprint ?? knowledgeFingerprint ?? null
+        );
       } catch (error) {
         console.error(
           "Fingerprint error:",
@@ -94,33 +126,87 @@ function Dashboard({
   // GET ADAPTIVE STATUS
   // -----------------------------------------
 
+
   const getAdaptiveStatus = (fingerprint) => {
     const scores = dimensions.map(({ key }) => {
       const data = fingerprint?.[key] ?? {};
 
-      const total = Number(data.total) || 0;
+      let totalQuestions =
+        Number(data.question_count ?? data.total) || 0;
 
-      const score =
-        data.score === null || data.score === undefined
-          ? null
-          : Number(data.score);
+      if (key === "recall") {
+        totalQuestions = 6;
+      }
+
+      const answered =
+        Number(data.answered_count ?? 0) || 0;
+
+      const mastered =
+        Number(
+          data.mastered_count ??
+          data.correct ??
+          0
+        ) || 0;
+
+      let score =
+        data.score !== null &&
+          data.score !== undefined
+          ? Number(data.score)
+          : null;
+
+      // For Recall, score is progress toward mastering
+      // all 6 questions.
+      if (key === "recall" && totalQuestions > 0) {
+        score = Math.round(
+          (mastered / totalQuestions) * 100
+        );
+      }
+
+      const progress =
+        totalQuestions > 0
+          ? Math.min(
+            Math.round(
+              (mastered / totalQuestions) * 100
+            ),
+            100
+          )
+          : 0;
+
+      const completed =
+        totalQuestions > 0 &&
+        mastered >= totalQuestions;
+
+      let strength = "Not attempted";
+
+      if (answered > 0 && !completed) {
+        strength = "Not completed";
+      }
+
+      if (completed) {
+        if (score >= MASTERY_THRESHOLD) {
+          strength = "Strong";
+        } else if (score >= 60) {
+          strength = "Developing";
+        } else {
+          strength = "Weak";
+        }
+      }
 
       return {
         dimension: key,
-        total,
-        score: Number.isFinite(score) ? score : null,
-
-        // A dimension is complete only after 6 questions
-        completed: total >= MASTERY_QUESTIONS,
+        total: totalQuestions,
+        correct: mastered,
+        progress,
+        score,
+        strength,
+        completed,
       };
     });
 
-    // First dimension that has not completed 6 questions
     const nextIncomplete = scores.find(
-      (item) => !item.completed
+      item => !item.completed
     );
 
-    // All six dimensions completed
     if (!nextIncomplete) {
       return {
         status: "completed",
@@ -128,30 +214,33 @@ function Dashboard({
         weakDimension: null,
         nextDimension: null,
         completedDimensions: dimensions.length,
+        scores,
       };
     }
 
-    const completedDimensions = scores.filter(
-      (item) => item.completed
-    ).length;
+    const completedDimensions =
+      scores.filter(
+        item => item.completed
+      ).length;
 
-    // Dimension has been started but has fewer than 6 questions
     const isPartial =
-      nextIncomplete.total > 0 &&
-      nextIncomplete.total < MASTERY_QUESTIONS;
+      nextIncomplete.answered > 0;
 
     return {
-      status: isPartial ? "reinforcement" : "current",
-      progress: Math.round(
-        (nextIncomplete.total / MASTERY_QUESTIONS) * 100
-      ),
+      status: isPartial
+        ? "reinforcement"
+        : "current",
 
-      // IMPORTANT:
-      // An incomplete dimension is NOT weak yet.
+      progress: nextIncomplete.progress,
+
       weakDimension: null,
 
-      nextDimension: nextIncomplete.dimension,
+      nextDimension:
+        nextIncomplete.dimension,
+
       completedDimensions,
+
+      scores,
     };
   };
 
@@ -239,19 +328,22 @@ function Dashboard({
   const handleContinueLearning = () => {
     if (!currentConcept) return;
 
-    const adaptiveDimension =
-      currentConcept.nextDimension || "recall";
-
     const selectedConcept = {
       ...currentConcept,
-      adaptiveDimension,
+      adaptiveDimension: null,
+      nextDimension: null,
     };
 
-    console.log("CONTINUE LEARNING:", selectedConcept);
+    console.log(
+      "CONTINUE LEARNING → LEARN PAGE:",
+      selectedConcept
+    );
 
-    onConceptSelect(selectedConcept);
+    onConceptSelect(
+      selectedConcept,
+      { startAt: "learning" }
+    );
   };
-
   // -----------------------------------------
   // DEBUG
   // -----------------------------------------
@@ -374,6 +466,7 @@ function Dashboard({
 
       <KnowledgeFingerprint
         fingerprint={fingerprint}
+        student={student}
         topic="Loops"
       />
 
@@ -384,9 +477,8 @@ function Dashboard({
         onConceptSelect={(concept) => {
           onConceptSelect({
             ...concept,
-            adaptiveDimension:
-              concept.nextDimension ||
-              "recall",
+            adaptiveDimension: null,
+            nextDimension: null,
           });
         }}
       />

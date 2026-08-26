@@ -5,6 +5,10 @@ import AdaptiveChallenge from "../components/AdaptiveChallenge";
 import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigator";
 import { detectWeakness } from "../services/weaknessDetector";
 
+import {
+  saveMistakeHistory,
+} from "../utils/mistakeTracker";
+
 function ImplementAssessment({
   concept,
   student,
@@ -19,15 +23,7 @@ function ImplementAssessment({
   // CONSTANTS
   // ============================================================
 
-  const MASTERY_THRESHOLD = 0.8;
-
-  const DEFAULT_MASTERY = 0.5;
-  const MASTERY_MIN = 0;
-  const MASTERY_MAX = 1;
-
-  const MASTERY_INCREMENT = 0.15;
-  const MASTERY_DECREMENT = 0.20;
-  const MASTERY_SYNTAX_DECREMENT = 0.15;
+  const MASTERY_THRESHOLD = 80;
 
   // ============================================================
   // STATE
@@ -43,11 +39,26 @@ function ImplementAssessment({
   const [loadingProgress, setLoadingProgress] = useState(true);
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
-
-  const [completedIds, setCompletedIds] = useState(new Set());
+  const [analysis, setAnalysis] = useState(null);
 
   const [questionScores, setQuestionScores] = useState({});
   const [questionAttempts, setQuestionAttempts] = useState({});
+
+  const completedIds = useMemo(() => {
+    return new Set(
+      implementQuestions
+        .filter(
+          (item) =>
+            Number(
+              questionScores[item.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        )
+        .map((item) => item.id)
+    );
+  }, [
+    implementQuestions,
+    questionScores,
+  ]);
 
   const [showHint, setShowHint] = useState(false);
 
@@ -59,8 +70,6 @@ function ImplementAssessment({
   // ============================================================
   // EVIDENCE-DRIVEN MASTERY PROFILE
   // ============================================================
-
-  const [mastery, setMastery] = useState({});
 
   const [currentWeakness, setCurrentWeakness] = useState(null);
 
@@ -275,12 +284,12 @@ function ImplementAssessment({
 
       return normalizeWeakness(
         item.weakness ||
-          item.skill ||
-          item.targetSkill ||
-          item.misconception ||
-          item.dimension ||
-          item.weakness_type ||
-          ""
+        item.skill ||
+        item.targetSkill ||
+        item.misconception ||
+        item.dimension ||
+        item.weakness_type ||
+        ""
       );
     },
     [normalizeWeakness]
@@ -381,164 +390,306 @@ function ImplementAssessment({
   // MASTERY HELPERS
   // ============================================================
 
-  const clampMastery = useCallback((value) => {
-    const numericValue = Number(value);
 
-    return Math.max(
-      MASTERY_MIN,
-      Math.min(
-        MASTERY_MAX,
-        Number.isFinite(numericValue)
-          ? numericValue
-          : 0
-      )
-    );
-  }, []);
+  // ============================================================
+  // IMPLEMENT SCORE
+  // ============================================================
 
-  const getMastery = useCallback(
-    (weakness) => {
-      const normalized =
-        normalizeWeakness(weakness);
+  const calculateImplementScore = useCallback(
+    (scores) => {
+      if (!implementQuestions.length) {
+        return 0;
+      }
 
-      const entry = mastery?.[normalized];
-
-      if (typeof entry === "object") {
-        return clampMastery(
-          entry?.mastery ?? DEFAULT_MASTERY
+      const answeredQuestions =
+        implementQuestions.filter(
+          (item) =>
+            scores[item.id] !== undefined
         );
+
+      if (!answeredQuestions.length) {
+        return 0;
       }
 
-      if (entry !== undefined) {
-        return clampMastery(entry);
-      }
+      const totalScore =
+        answeredQuestions.reduce(
+          (sum, item) =>
+            sum +
+            Number(scores[item.id] ?? 0),
+          0
+        );
 
-      return DEFAULT_MASTERY;
+      return Math.round(
+        totalScore /
+        answeredQuestions.length
+      );
     },
-    [mastery, normalizeWeakness, clampMastery]
+    [implementQuestions]
   );
+
+  const implementScore = useMemo(
+    () =>
+      calculateImplementScore(
+        questionScores
+      ),
+    [
+      calculateImplementScore,
+      questionScores,
+    ]
+  );
+
+  // ============================================================
+  // IMPLEMENT DIMENSION RESULT
+  // ============================================================
+
+  const calculateDimensionResult = useCallback(
+    (scores) => {
+      const total =
+        implementQuestions.length;
+
+      if (!total) {
+        return {
+          correct: 0,
+          total: 0,
+          score: 0,
+          attempted: 0,
+        };
+      }
+
+      const attempted =
+        implementQuestions.filter(
+          (item) =>
+            scores[item.id] !== undefined
+        );
+
+      const correct =
+        implementQuestions.filter(
+          (item) =>
+            Number(
+              scores[item.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        ).length;
+
+      const score = Math.round(
+        (correct / total) * 100
+      );
+
+      return {
+        correct,
+        total,
+        score,
+        attempted:
+          attempted.length,
+      };
+    },
+    [implementQuestions]
+  );
+
+  const buildKnowledgeFingerprint = useCallback(
+    (dimensionResult) => {
+      return {
+        implement: {
+          score: Number(
+            dimensionResult.score ?? 0
+          ),
+          correct: Number(
+            dimensionResult.correct ?? 0
+          ),
+          total: Number(
+            dimensionResult.total ?? 0
+          ),
+        },
+
+        updated_dimension:
+          "implement",
+
+        updated_at:
+          new Date().toISOString(),
+      };
+    },
+    []
+  );
+
+  const updateKnowledgeFingerprint =
+    useCallback(
+      async (dimensionResult) => {
+        const fingerprint =
+          buildKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/knowledge-fingerprint`,
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify({
+                  student_id:
+                    String(student.id),
+
+                  concept:
+                    concept.id,
+
+                  dimension:
+                    "implement",
+
+                  fingerprint,
+
+                  dimension_score:
+                    Number(
+                      dimensionResult.score ??
+                      0
+                    ),
+
+                  dimension_correct:
+                    Number(
+                      dimensionResult.correct ??
+                      0
+                    ),
+
+                  dimension_total:
+                    Number(
+                      dimensionResult.total ??
+                      0
+                    ),
+                }),
+              }
+            );
+
+          if (!response.ok) {
+            console.warn(
+              "Implement fingerprint endpoint returned:",
+              response.status
+            );
+
+            return false;
+          }
+
+          return true;
+        } catch (error) {
+          console.warn(
+            "Implement fingerprint update failed:",
+            error
+          );
+
+          return false;
+        }
+      },
+      [
+        API_URL,
+        student?.id,
+        concept?.id,
+        buildKnowledgeFingerprint,
+      ]
+    );
+
+  const completeImplementAssessment =
+    useCallback(
+      async (scores) => {
+        const allMastered =
+          implementQuestions.length > 0 &&
+          implementQuestions.every(
+            (item) =>
+              Number(
+                scores[item.id] ?? 0
+              ) >= MASTERY_THRESHOLD
+          );
+
+        if (!allMastered) {
+          return;
+        }
+
+        const dimensionResult =
+          calculateDimensionResult(
+            scores
+          );
+
+        const fingerprintSaved =
+          await updateKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        if (!fingerprintSaved) {
+          console.warn(
+            "Implement fingerprint could not be saved."
+          );
+        }
+
+        onComplete({
+          dimension: "implement",
+
+          correct:
+            dimensionResult.correct,
+
+          total:
+            dimensionResult.total,
+
+          score:
+            dimensionResult.score,
+
+          fingerprint:
+            buildKnowledgeFingerprint(
+              dimensionResult
+            ),
+        });
+      },
+      [
+        implementQuestions,
+        calculateDimensionResult,
+        updateKnowledgeFingerprint,
+        onComplete,
+        buildKnowledgeFingerprint,
+      ]
+    );
 
   // ============================================================
   // OVERALL IMPLEMENT MASTERY
   // ============================================================
+  const getMastery = useCallback(
+    (weakness) => {
+      const normalizedWeakness =
+        normalizeWeakness(weakness);
 
-  const getQuestionMastery = useCallback(
-    (item) => {
-      if (!item) {
-        return DEFAULT_MASTERY;
+      const matchingQuestions =
+        implementQuestions.filter(
+          (item) =>
+            getQuestionWeakness(item) ===
+            normalizedWeakness
+        );
+
+      if (matchingQuestions.length === 0) {
+        return 0;
       }
 
-      const weakness =
-        getQuestionWeakness(item);
-
-      return getMastery(weakness);
-    },
-    [getQuestionWeakness, getMastery]
-  );
-
-  const overallMastery = useMemo(() => {
-    if (implementQuestions.length === 0) {
-      return 0;
-    }
-
-    const values = implementQuestions.map(
-      (item) => getQuestionMastery(item)
-    );
-
-    return (
-      values.reduce(
-        (total, value) => total + value,
+      const total = matchingQuestions.reduce(
+        (sum, item) =>
+          sum +
+          Number(
+            questionScores[item.id] ?? 0
+          ),
         0
-      ) / values.length
-    );
-  }, [
-    implementQuestions,
-    getQuestionMastery,
-    mastery,
-  ]);
+      );
 
-  const overallMasteryPercent = Math.round(
-    overallMastery * 100
+      return total / matchingQuestions.length / 100;
+    },
+    [
+      implementQuestions,
+      questionScores,
+      normalizeWeakness,
+      getQuestionWeakness,
+    ]
   );
 
   // ============================================================
   // UPDATE MASTERY
   // ============================================================
-
-  const updateMastery = useCallback(
-    ({
-      weakness,
-      success,
-      score,
-      mistakeType,
-    }) => {
-      const normalizedWeakness =
-        normalizeWeakness(weakness);
-
-      if (
-        normalizedWeakness ===
-        "general_implementation"
-      ) {
-        return;
-      }
-
-      setMastery((previous) => {
-        const oldEntry =
-          previous?.[normalizedWeakness];
-
-        const oldMastery = Number(
-          oldEntry?.mastery ??
-            oldEntry ??
-            DEFAULT_MASTERY
-        );
-
-        let delta = 0;
-
-        if (success) {
-          delta =
-            MASTERY_INCREMENT *
-            (Number(score ?? 100) / 100);
-        } else if (
-          mistakeType === "python_syntax"
-        ) {
-          delta = -MASTERY_SYNTAX_DECREMENT;
-        } else {
-          delta = -MASTERY_DECREMENT;
-        }
-
-        const newMastery = clampMastery(
-          oldMastery + delta
-        );
-
-        return {
-          ...previous,
-
-          [normalizedWeakness]: {
-            mastery: newMastery,
-
-            attempts:
-              Number(oldEntry?.attempts || 0) + 1,
-
-            correct:
-              Number(oldEntry?.correct || 0) +
-              (success ? 1 : 0),
-
-            incorrect:
-              Number(oldEntry?.incorrect || 0) +
-              (success ? 0 : 1),
-
-            lastScore: Number(score || 0),
-
-            lastMistake:
-              mistakeType || "none",
-
-            updatedAt:
-              new Date().toISOString(),
-          },
-        };
-      });
-    },
-    [clampMastery, normalizeWeakness]
-  );
 
   // ============================================================
   // MASTERY COMPLETION CHECK
@@ -550,15 +701,13 @@ function ImplementAssessment({
         return false;
       }
 
-      const weakness =
-        getQuestionWeakness(item);
-
       return (
-        getMastery(weakness) >=
-        MASTERY_THRESHOLD
+        Number(
+          questionScores[item.id] ?? 0
+        ) >= MASTERY_THRESHOLD
       );
     },
-    [getQuestionWeakness, getMastery]
+    [questionScores]
   );
 
   const areAllQuestionsMastered = useCallback(
@@ -612,25 +761,26 @@ function ImplementAssessment({
         }
 
         // ------------------------------------------------------
-        // COMPLETED QUESTIONS
-        // ------------------------------------------------------
-
-        const loadedCompletedIds =
-          new Set(
-            data.completed_question_ids || []
-          );
-
-        setCompletedIds(
-          loadedCompletedIds
-        );
-
-        // ------------------------------------------------------
         // QUESTION SCORES
         // ------------------------------------------------------
 
+        const loadedScores =
+          data.question_scores || {};
+
         setQuestionScores(
-          data.question_scores || {}
+          loadedScores
         );
+
+        // ------------------------------------------------------
+        // COMPLETED QUESTIONS
+        // ------------------------------------------------------
+        //
+        // Do NOT blindly trust backend
+        // completed_question_ids.
+        //
+        // A question is completed only when
+        // its saved score reaches mastery.
+        //
 
         // ------------------------------------------------------
         // QUESTION ATTEMPTS
@@ -645,8 +795,8 @@ function ImplementAssessment({
             loadedAttempts[questionId] =
               Number(
                 value?.attempts ??
-                  value ??
-                  0
+                value ??
+                0
               );
           }
         );
@@ -659,24 +809,21 @@ function ImplementAssessment({
         // MASTERY
         // ------------------------------------------------------
 
-        const loadedMastery =
-          data.mastery ||
-          data.mastery_profile ||
-          {};
-
-        setMastery(loadedMastery);
-
         // ------------------------------------------------------
-        // FIND FIRST NON-MASTERED QUESTION
+        // FIND FIRST UNMASTERED QUESTION
         // ------------------------------------------------------
+        //
+        // Question scores are the source of truth.
+        // Do not use the separate mastery profile
+        // to decide assessment completion.
+        //
 
         const nextIndex =
           implementQuestions.findIndex(
             (item) =>
-              !isQuestionMasteredFromData(
-                item,
-                loadedMastery
-              )
+              Number(
+                loadedScores[item.id] ?? 0
+              ) < MASTERY_THRESHOLD
           );
 
         if (nextIndex !== -1) {
@@ -691,34 +838,30 @@ function ImplementAssessment({
         }
 
         // ------------------------------------------------------
-        // FALLBACK: FIND INCOMPLETE QUESTION
+        // EVERYTHING MASTERED
         // ------------------------------------------------------
 
-        const incompleteIndex =
-          implementQuestions.findIndex(
+        const allMastered =
+          implementQuestions.length > 0 &&
+          implementQuestions.every(
             (item) =>
-              !loadedCompletedIds.has(item.id)
+              Number(
+                loadedScores[item.id] ?? 0
+              ) >= MASTERY_THRESHOLD
           );
 
-        if (incompleteIndex !== -1) {
-          setQuestionIndex(
-            incompleteIndex
+        if (allMastered) {
+          console.log(
+            "ALL IMPLEMENT QUESTIONS MASTERED → COMPLETE"
           );
 
-          setCode(
-            implementQuestions[
-              incompleteIndex
-            ].starterCode || ""
+          await completeImplementAssessment(
+            loadedScores
           );
 
           return;
         }
 
-        // ------------------------------------------------------
-        // EVERYTHING MASTERED
-        // ------------------------------------------------------
-
-        onComplete();
       } catch (error) {
         console.error(
           "Could not load implementation progress:",
@@ -756,35 +899,6 @@ function ImplementAssessment({
   // ============================================================
   // HELPER FOR LOADED MASTERY
   // ============================================================
-
-  function isQuestionMasteredFromData(
-    item,
-    loadedMastery
-  ) {
-    if (!item) {
-      return false;
-    }
-
-    const weakness =
-      getQuestionWeakness(item);
-
-    const entry =
-      loadedMastery?.[weakness];
-
-    const value =
-      typeof entry === "object"
-        ? entry?.mastery
-        : entry;
-
-    const masteryValue = Number(
-      value ?? DEFAULT_MASTERY
-    );
-
-    return (
-      Number.isFinite(masteryValue) &&
-      masteryValue >= MASTERY_THRESHOLD
-    );
-  }
 
   // ============================================================
   // QUESTION ERROR MESSAGE
@@ -945,7 +1059,7 @@ function ImplementAssessment({
       async ({
         mistakeType,
         errorMessage,
-        score = 40,
+        score = 0,
       }) => {
         if (!question) {
           return "general_implementation";
@@ -1018,8 +1132,8 @@ function ImplementAssessment({
           if (!analysisResponse.ok) {
             throw new Error(
               analysisData.detail ||
-                analysisData.message ||
-                "AI analysis request failed."
+              analysisData.message ||
+              "AI analysis request failed."
             );
           }
 
@@ -1110,7 +1224,7 @@ function ImplementAssessment({
           setMistakeAnalysis({
             mistake_type:
               mistakeType ===
-              "python_syntax"
+                "python_syntax"
                 ? "Python syntax error"
                 : "Implementation error",
 
@@ -1118,7 +1232,7 @@ function ImplementAssessment({
 
             misconception:
               mistakeType ===
-              "python_syntax"
+                "python_syntax"
                 ? "There is a Python syntax or execution problem in the submitted code."
                 : weaknessMetadata.description,
 
@@ -1156,6 +1270,114 @@ function ImplementAssessment({
       ]
     );
 
+
+  const trackImplementMistake = useCallback(
+    async ({
+      mistakeType,
+      score,
+      attemptNumber,
+      errorMessage = "",
+      misconception = "",
+      recommendation = "",
+      weakness = "",
+      weaknessType = "",
+      studentAnswer = currentCode,
+      actualOutput = output,
+    }) => {
+      return saveMistakeHistory({
+        API_URL,
+
+        studentId: student?.id,
+
+        // Learning hierarchy
+        topic: "loops",
+        concept: "loops",
+        dimension: "implement",
+
+        // Question
+        questionId: question?.id,
+        questionType: "code",
+        questionFormat: "coding",
+        question: question?.description,
+
+        // Attempt
+        score: score ?? 0,
+        maxScore: 100,
+        attemptNumber,
+
+        // Student response
+        studentAnswer,
+        correctAnswer:
+          question?.expectedOutput || "",
+
+        // Mistake
+        mistakeType,
+
+        mistake:
+          errorMessage ||
+          mistakeType ||
+          "Implementation mistake",
+
+        weakness:
+          weakness ||
+          analysis?.weakness ||
+          null,
+
+        weaknessType:
+          weaknessType ||
+          analysis?.weakness ||
+          null,
+
+        // Analysis
+        misconception:
+          misconception ||
+          analysis?.misconception ||
+          null,
+
+        whatHappened:
+          errorMessage ||
+          analysis?.whatHappened ||
+          null,
+
+        recommendation:
+          recommendation ||
+          analysis?.recommendedNextStep ||
+          null,
+
+        // Code-specific
+        code: studentAnswer,
+        errorMessage,
+
+        expectedOutput:
+          question?.expectedOutput || "",
+
+        actualOutput,
+
+        // Retest
+        retestMode,
+        isRetest: retestMode,
+
+        // Extra information
+        metadata: {
+          question_title:
+            question?.title || null,
+
+          adaptive:
+            question?.adaptive || null,
+        },
+      });
+    },
+    [
+      API_URL,
+      student?.id,
+      question,
+      currentCode,
+      output,
+      analysis,
+      retestMode,
+    ]
+  );
+
   // ============================================================
   // RUN CODE
   // ============================================================
@@ -1171,7 +1393,27 @@ function ImplementAssessment({
       setOutput("");
       setCurrentWeakness(null);
 
+      // --------------------------------------------------------
+      // EXECUTION ATTEMPT NUMBER
+      // --------------------------------------------------------
+
+      const attemptNumber =
+        Number(
+          questionAttempts[question.id] ?? 0
+        ) + 1;
+
+      setQuestionAttempts(
+        (previous) => ({
+          ...previous,
+          [question.id]:
+            attemptNumber,
+        })
+      );
+
       if (!currentCode.trim()) {
+        const errorMessage =
+          "Please write or fix the code before running it.";
+
         setOutput("No code to run.");
 
         setResult({
@@ -1180,6 +1422,15 @@ function ImplementAssessment({
           mistakeType: "no_code",
           message:
             "Please write a Python solution before running the code.",
+        });
+
+        await trackImplementMistake({
+          mistakeType: "no_code",
+          score: 0,
+          attemptNumber,
+          errorMessage,
+          studentAnswer: "",
+          actualOutput: "No code to run.",
         });
 
         return;
@@ -1216,8 +1467,8 @@ function ImplementAssessment({
         if (!response.ok) {
           throw new Error(
             data.message ||
-              data.error ||
-              "Failed to run the code."
+            data.error ||
+            "Failed to run the code."
           );
         }
 
@@ -1265,12 +1516,6 @@ function ImplementAssessment({
                   : null,
             });
 
-          updateMastery({
-            weakness,
-            success: false,
-            score,
-            mistakeType,
-          });
 
           await recordExecution({
             success: false,
@@ -1281,13 +1526,25 @@ function ImplementAssessment({
             weakness,
           });
 
+          await trackImplementMistake({
+            mistakeType,
+            score: 40,
+            attemptNumber,
+            errorMessage,
+            studentAnswer: currentCode,
+            actualOutput: errorText,
+            weakness,
+            weaknessType: weakness,
+          });
+
           await analyzeImplementationMistake({
             mistakeType,
             errorMessage,
-            score,
+            score: 40,
           });
 
           return;
+
         }
 
         // ======================================================
@@ -1330,13 +1587,6 @@ function ImplementAssessment({
             successWeakness
           );
 
-          updateMastery({
-            weakness: successWeakness,
-            success: true,
-            score: 100,
-            mistakeType:
-              "implementation_success",
-          });
 
           setResult({
             success: true,
@@ -1371,7 +1621,7 @@ function ImplementAssessment({
         const mistakeType =
           "implementation_error";
 
-        const score = 40;
+        const score = 0;
 
         setResult({
           success: false,
@@ -1390,13 +1640,6 @@ function ImplementAssessment({
               question.skill,
           });
 
-        updateMastery({
-          weakness,
-          success: false,
-          score,
-          mistakeType,
-        });
-
         await recordExecution({
           success: false,
           score,
@@ -1406,10 +1649,21 @@ function ImplementAssessment({
           weakness,
         });
 
+        await trackImplementMistake({
+          mistakeType,
+          score: data.score ?? 40,
+          attemptNumber,
+          errorMessage,
+          studentAnswer: currentCode,
+          actualOutput,
+          weakness,
+          weaknessType: weakness,
+        });
+
         await analyzeImplementationMistake({
           mistakeType,
           errorMessage,
-          score,
+          score: data.score ?? 40,
         });
       } catch (error) {
         console.error(
@@ -1417,8 +1671,14 @@ function ImplementAssessment({
           error
         );
 
+        const errorMessage =
+          "Could not run the code. Make sure the backend is running.";
+
+        const actualOutput =
+          "Could not run the code. Please check that the backend is running.";
+
         setOutput(
-          "Could not run the code.\nPlease check that the backend is running."
+          actualOutput
         );
 
         setResult({
@@ -1428,7 +1688,17 @@ function ImplementAssessment({
           message:
             "Could not run the code. Make sure the backend is running and the /run-code endpoint is available.",
         });
+
+        await trackImplementMistake({
+          mistakeType: "backend_error",
+          score: 0,
+          attemptNumber,
+          errorMessage,
+          studentAnswer: currentCode,
+          actualOutput,
+        });
       } finally {
+
         setAiLoading(false);
       }
     },
@@ -1439,10 +1709,11 @@ function ImplementAssessment({
       currentWeakness,
       normalizeOutput,
       getAdaptiveWeakness,
-      updateMastery,
       recordExecution,
       analyzeImplementationMistake,
       getImplementationErrorMessage,
+      questionAttempts,
+      trackImplementMistake,
     ]
   );
 
@@ -1464,7 +1735,7 @@ function ImplementAssessment({
 
         setCode(
           selectedQuestion.starterCode ||
-            ""
+          ""
         );
 
         setOutput("");
@@ -1537,6 +1808,7 @@ function ImplementAssessment({
         excludedIds = new Set(),
         preferredWeakness = null,
         allowMastered = false,
+        scores = questionScores,
       } = {}) => {
         const remaining =
           implementQuestions
@@ -1555,8 +1827,10 @@ function ImplementAssessment({
                 }
 
                 if (!allowMastered) {
-                  return !isQuestionMastered(
-                    item
+                  return (
+                    Number(
+                      scores[item.id] ?? 0
+                    ) < MASTERY_THRESHOLD
                   );
                 }
 
@@ -1592,23 +1866,23 @@ function ImplementAssessment({
               const itemDifficulty =
                 String(
                   item.difficulty ||
-                    "medium"
+                  "medium"
                 ).toLowerCase();
 
               const targetRank =
                 difficultyRank[
-                  targetDifficulty
+                targetDifficulty
                 ] || 2;
 
               const itemRank =
                 difficultyRank[
-                  itemDifficulty
+                itemDifficulty
                 ] || 2;
 
               const weaknessScore =
                 targetWeakness !==
                   "general_implementation" &&
-                itemWeakness ===
+                  itemWeakness ===
                   targetWeakness
                   ? 0
                   : 1;
@@ -1619,7 +1893,7 @@ function ImplementAssessment({
               const difficultyDistance =
                 Math.abs(
                   itemRank -
-                    targetRank
+                  targetRank
                 );
 
               return {
@@ -1676,6 +1950,7 @@ function ImplementAssessment({
         getTargetDifficulty,
         difficultyRank,
         isQuestionMastered,
+        questionScores,
       ]
     );
 
@@ -1816,36 +2091,31 @@ function ImplementAssessment({
   const markQuestionCompleted =
     useCallback(
       (questionId, score) => {
-        setCompletedIds(
+        setQuestionScores(
           (previous) => {
-            const next = new Set(
-              previous
-            );
+            const previousScore =
+              Number(
+                previous[questionId] ?? 0
+              );
 
-            next.add(questionId);
+            const bestScore =
+              Math.max(
+                previousScore,
+                Number(score ?? 0)
+              );
 
-            return next;
+            return {
+              ...previous,
+              [questionId]:
+                bestScore,
+            };
           }
         );
 
-        setQuestionScores(
-          (previous) => ({
-            ...previous,
-            [questionId]: score,
-          })
-        );
+        // Execution attempts are incremented
+        // when Run Code is pressed.
+        // Do not increment them again on submit.
 
-        setQuestionAttempts(
-          (previous) => ({
-            ...previous,
-            [questionId]:
-              Number(
-                previous[
-                  questionId
-                ] || 0
-              ) + 1,
-          })
-        );
       },
       []
     );
@@ -1896,7 +2166,7 @@ function ImplementAssessment({
 
         setCode(
           fallbackQuestion.starterCode ||
-            ""
+          ""
         );
 
         setOutput("");
@@ -1950,12 +2220,12 @@ function ImplementAssessment({
         const selectedWeakness =
           normalizeWeakness(
             currentWeakness ||
-              mistakeAnalysis?.weakness ||
-              question.weakness ||
-              question.skill ||
-              getLegacyQuestionWeakness(
-                question.id
-              )
+            mistakeAnalysis?.weakness ||
+            question.weakness ||
+            question.skill ||
+            getLegacyQuestionWeakness(
+              question.id
+            )
           );
 
         startTargetedRetest(
@@ -1971,12 +2241,12 @@ function ImplementAssessment({
         const selectedWeakness =
           normalizeWeakness(
             currentWeakness ||
-              mistakeAnalysis?.weakness ||
-              question.weakness ||
-              question.skill ||
-              getLegacyQuestionWeakness(
-                question.id
-              )
+            mistakeAnalysis?.weakness ||
+            question.weakness ||
+            question.skill ||
+            getLegacyQuestionWeakness(
+              question.id
+            )
           );
 
         // ======================================================
@@ -1999,6 +2269,23 @@ function ImplementAssessment({
         // UPDATE QUESTION EVIDENCE
         // ======================================================
 
+        const previousScore =
+          Number(
+            questionScores[question.id] ?? 0
+          );
+
+        const updatedScore =
+          Math.max(
+            previousScore,
+            Number(result.score ?? 0)
+          );
+
+        const updatedScores = {
+          ...questionScores,
+          [question.id]:
+            updatedScore,
+        };
+
         markQuestionCompleted(
           question.id,
           result.score
@@ -2011,7 +2298,7 @@ function ImplementAssessment({
         if (
           retestMode &&
           retestQuestionId ===
-            question.id
+          question.id
         ) {
           setRetestCompleted(true);
           setRetestMode(false);
@@ -2026,76 +2313,33 @@ function ImplementAssessment({
         }
 
         // ======================================================
-        // DETERMINE UPDATED MASTERY
-        // ======================================================
-
-        const currentQuestionWeakness =
-          selectedWeakness;
-
-        const existingEntry =
-          mastery?.[
-            currentQuestionWeakness
-          ];
-
-        const oldMastery =
-          Number(
-            existingEntry?.mastery ??
-              existingEntry ??
-              DEFAULT_MASTERY
-          );
-
-        const masteryGain =
-          MASTERY_INCREMENT *
-          (Number(result.score || 0) /
-            100);
-
-        const projectedMastery =
-          clampMastery(
-            oldMastery +
-              masteryGain
-          );
-
-        const projectedMasteryMap = {
-          ...mastery,
-
-          [currentQuestionWeakness]: {
-            ...(typeof existingEntry ===
-            "object"
-              ? existingEntry
-              : {}),
-
-            mastery:
-              projectedMastery,
-          },
-        };
-
-        // ======================================================
         // FIND TARGETED WEAK QUESTION FIRST
         // ======================================================
-
-        const targetedRetest =
-          retestMode &&
-          retestQuestionId ===
-            question.id;
-
-        if (
-          targetedRetest &&
-          projectedMastery >=
-            MASTERY_THRESHOLD
-        ) {
-          // Targeted weakness has now
-          // reached mastery.
-        }
 
         // ======================================================
         // FIND NEXT NON-MASTERED QUESTION
         // ======================================================
 
+        const updatedCompletedIds =
+          new Set(
+            implementQuestions
+              .filter(
+                (item) =>
+                  Number(
+                    updatedScores[item.id] ?? 0
+                  ) >= MASTERY_THRESHOLD
+              )
+              .map((item) => item.id)
+          );
+
+        const currentQuestionWeakness =
+          selectedWeakness;
+
         const nextQuestion =
           selectAdaptiveQuestion({
             excludedIds:
               new Set([
-                ...completedIds,
+                ...updatedCompletedIds,
                 question.id,
               ]),
 
@@ -2103,6 +2347,9 @@ function ImplementAssessment({
               currentQuestionWeakness,
 
             allowMastered: false,
+
+            scores:
+              updatedScores,
           });
 
         if (nextQuestion) {
@@ -2131,44 +2378,26 @@ function ImplementAssessment({
 
         // ======================================================
         // CHECK ALL QUESTIONS AGAINST
-        // CURRENT + PROJECTED MASTERY
+        // LATEST QUESTION SCORES
         // ======================================================
 
         const allMastered =
+          implementQuestions.length > 0 &&
           implementQuestions.every(
-            (item) => {
-              const weakness =
-                getQuestionWeakness(
-                  item
-                );
-
-              const entry =
-                projectedMasteryMap[
-                  weakness
-                ];
-
-              const value =
-                typeof entry ===
-                "object"
-                  ? entry?.mastery
-                  : entry;
-
-              return (
-                Number(
-                  value ??
-                    DEFAULT_MASTERY
-                ) >=
-                MASTERY_THRESHOLD
-              );
-            }
+            (item) =>
+              Number(
+                updatedScores[item.id] ?? 0
+              ) >= MASTERY_THRESHOLD
           );
 
         if (allMastered) {
           console.log(
-            "ALL IMPLEMENTATION QUESTIONS MASTERED"
+            "ALL IMPLEMENT QUESTIONS MASTERED"
           );
 
-          onComplete();
+          await completeImplementAssessment(
+            updatedScores
+          );
 
           return;
         }
@@ -2185,24 +2414,21 @@ function ImplementAssessment({
                 item,
                 index,
 
-                mastery:
-                  item.id ===
-                  question.id
-                    ? projectedMastery
-                    : getQuestionMastery(
-                        item
-                      ),
+                score:
+                  Number(
+                    updatedScores[item.id] ?? 0
+                  ),
               })
             )
             .filter(
-              ({ mastery }) =>
-                mastery <
+              ({ score }) =>
+                score <
                 MASTERY_THRESHOLD
             )
             .sort(
               (a, b) =>
-                a.mastery -
-                b.mastery
+                a.score -
+                b.score
             )[0];
 
         if (
@@ -2244,8 +2470,57 @@ function ImplementAssessment({
         // ======================================================
         // FINAL FALLBACK
         // ======================================================
+        //
+        // The assessment must never complete here.
+        // If we reach this point, at least one
+        // question is still below mastery.
+        //
 
-        onComplete();
+        const remainingQuestion =
+          implementQuestions.find(
+            (item) =>
+              Number(
+                updatedScores[item.id] ?? 0
+              ) < MASTERY_THRESHOLD
+          );
+
+        if (remainingQuestion) {
+          const remainingIndex =
+            implementQuestions.findIndex(
+              (item) =>
+                item.id ===
+                remainingQuestion.id
+            );
+
+          if (remainingIndex !== -1) {
+            setQuestionIndex(
+              remainingIndex
+            );
+
+            setCode(
+              remainingQuestion.starterCode ||
+              ""
+            );
+
+            setOutput("");
+            setResult(null);
+            setMistakeAnalysis(null);
+            setShowAdaptiveChallenge(false);
+            setShowHint(false);
+
+            setCurrentWeakness(
+              getQuestionWeakness(
+                remainingQuestion
+              )
+            );
+
+            setRetestMode(true);
+            setRetestQuestionId(
+              remainingQuestion.id
+            );
+            setRetestCompleted(false);
+          }
+        }
       } catch (error) {
         console.error(
           "Submit implementation error:",
@@ -2278,13 +2553,11 @@ function ImplementAssessment({
       retestMode,
       retestQuestionId,
       markQuestionCompleted,
-      mastery,
-      clampMastery,
+      questionScores,
       selectAdaptiveQuestion,
       completedIds,
       implementQuestions,
       getQuestionWeakness,
-      getQuestionMastery,
       onComplete,
     ]
   );
@@ -2333,18 +2606,6 @@ function ImplementAssessment({
   // CURRENT MASTERY DISPLAY
   // ============================================================
 
-  const displayedWeakness =
-    currentWeakness ||
-    mistakeAnalysis?.weakness ||
-    getQuestionWeakness(question);
-
-  const displayedMastery =
-    getMastery(displayedWeakness);
-
-  const displayedMasteryPercent =
-    Math.round(
-      displayedMastery * 100
-    );
 
   // ============================================================
   // LOADING
@@ -2453,7 +2714,7 @@ function ImplementAssessment({
         onClick={onBack}
         disabled={loading}
       >
-        ← Back to predict
+        ← Back
       </button>
 
       {/* ======================================================
@@ -2482,17 +2743,15 @@ function ImplementAssessment({
             color: "#64748b",
           }}
         >
-          Overall implementation
-          mastery:{" "}
+          Implement Score:{" "}
           <strong>
-            {overallMasteryPercent}%
+            {implementScore}%
           </strong>
           {" "}
           / mastery threshold{" "}
-          <strong>80%</strong>
+          <strong>{MASTERY_THRESHOLD}%</strong>
         </div>
       </div>
-
       {/* ======================================================
           NAVIGATOR
       ====================================================== */}
@@ -2547,98 +2806,17 @@ function ImplementAssessment({
           )}
 
           <span>
-            {questionAttempts[
-              question.id
-            ] || 0}{" "}
-            execution attempts
+            {questionAttempts[question.id] || 0} execution attempts
           </span>
 
           <span>
-            Best score:{" "}
-            {questionScores[
-              question.id
-            ] ?? 0}
-            %
-          </span>
-
-          <span>
-            Skill mastery:{" "}
-            {displayedMasteryPercent}%
+            Best score: {questionScores[question.id] ?? 0}%
           </span>
         </div>
 
         {/* ====================================================
             MASTERY INDICATOR
         ==================================================== */}
-
-        <div
-          className="implement-mastery"
-          style={{
-            marginTop: "12px",
-            marginBottom: "20px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent:
-                "space-between",
-              marginBottom: "6px",
-            }}
-          >
-            <span>
-              Current skill
-            </span>
-
-            <strong>
-              {displayedWeakness}
-            </strong>
-          </div>
-
-          <div
-            style={{
-              height: "8px",
-              background: "#e5e7eb",
-              borderRadius: "999px",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                width: `${displayedMasteryPercent}%`,
-                height: "100%",
-                background:
-                  displayedMasteryPercent <
-                  35
-                    ? "#ef4444"
-                    : displayedMasteryPercent <
-                      80
-                    ? "#f59e0b"
-                    : "#22c55e",
-
-                transition:
-                  "width 0.3s ease",
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              marginTop: "6px",
-              fontSize: "12px",
-              color: "#64748b",
-            }}
-          >
-            {displayedMasteryPercent >=
-            80
-              ? "✓ Skill mastered"
-              : `Needs ${Math.max(
-                  0,
-                  80 -
-                    displayedMasteryPercent
-                )}% more mastery`}
-          </div>
-        </div>
 
         {/* ====================================================
             RETEST MESSAGE
@@ -2707,35 +2885,35 @@ function ImplementAssessment({
 
         {question.variables?.length >
           0 && (
-          <div className="implement-variables">
-            <p className="question-label">
-              VARIABLES
-            </p>
+            <div className="implement-variables">
+              <p className="question-label">
+                VARIABLES
+              </p>
 
-            <div className="variables-list">
-              {question.variables.map(
-                (variable) => (
-                  <div
-                    className="variable-item"
-                    key={
-                      variable.name
-                    }
-                  >
-                    <strong>
-                      {variable.name}
-                    </strong>
-
-                    <span>
-                      {
-                        variable.purpose
+              <div className="variables-list">
+                {question.variables.map(
+                  (variable) => (
+                    <div
+                      className="variable-item"
+                      key={
+                        variable.name
                       }
-                    </span>
-                  </div>
-                )
-              )}
+                    >
+                      <strong>
+                        {variable.name}
+                      </strong>
+
+                      <span>
+                        {
+                          variable.purpose
+                        }
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* ====================================================
             HINT
@@ -2827,12 +3005,12 @@ function ImplementAssessment({
             {loading
               ? "Saving..."
               : retestMode
-              ? "Submit Retest →"
-              : questionIndex <
-                implementQuestions.length -
+                ? "Submit Retest →"
+                : questionIndex <
+                  implementQuestions.length -
                   1
-              ? "Submit & Continue →"
-              : "Submit Solution →"}
+                  ? "Submit & Continue →"
+                  : "Submit Solution →"}
           </button>
         </div>
 
@@ -2910,7 +3088,7 @@ function ImplementAssessment({
                         "10px",
                     }}
                   >
-                    Practice This Weakness →
+                    Try Again →
                   </button>
                 )}
               </>

@@ -45,10 +45,10 @@ function Roadmap({
 
               {index <
                 concepts.length - 1 && (
-                <div className="roadmap-connector">
-                  ↓
-                </div>
-              )}
+                  <div className="roadmap-connector">
+                    ↓
+                  </div>
+                )}
 
             </div>
           )

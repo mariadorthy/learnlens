@@ -1,4 +1,6 @@
 import React from "react";
+import ProofOfLearn from "../components/ProofOfLearn";
+import MistakeTracker from "../components/MistakeTracker";
 
 function CompletionOverview({
   concept,
@@ -18,7 +20,7 @@ function CompletionOverview({
       key: "learn",
       number: 1,
       title: "Learn",
-      icon: "📖",
+      icon: "",
       description:
         "Understand the concept and its fundamentals.",
       questions:
@@ -30,7 +32,7 @@ function CompletionOverview({
       key: "theory",
       number: 2,
       title: "Theory",
-      icon: "🧠",
+      icon: "",
       description:
         "Test your understanding of the core ideas.",
       questions:
@@ -42,7 +44,7 @@ function CompletionOverview({
       key: "explain",
       number: 3,
       title: "Explain",
-      icon: "💬",
+      icon: "",
       description:
         "Explain the concept in your own words.",
       questions:
@@ -54,7 +56,7 @@ function CompletionOverview({
       key: "predict",
       number: 4,
       title: "Predict",
-      icon: "🔮",
+      icon: "",
       description:
         "Predict what code will do before running it.",
       questions:
@@ -66,7 +68,7 @@ function CompletionOverview({
       key: "implement",
       number: 5,
       title: "Implement",
-      icon: "💻",
+      icon: "",
       description:
         "Write programs using the concept.",
       questions:
@@ -78,7 +80,7 @@ function CompletionOverview({
       key: "debug",
       number: 6,
       title: "Debug",
-      icon: "🐛",
+      icon: "",
       description:
         "Find and fix mistakes in programs.",
       questions:
@@ -90,7 +92,7 @@ function CompletionOverview({
       key: "apply",
       number: 7,
       title: "Apply",
-      icon: "🚀",
+      icon: "",
       description:
         "Use the concept to solve practical problems.",
       questions:
@@ -312,7 +314,7 @@ function CompletionOverview({
       <section className="completion-stats">
 
         <h2>
-          📊 Assessment Summary
+          Assessment Summary
         </h2>
 
         <div className="completion-stats-grid">
@@ -359,7 +361,7 @@ function CompletionOverview({
       <section className="concept-summary">
 
         <h2>
-          📚 What You Learned
+          What You Learned
         </h2>
 
         <div className="summary-card">
@@ -392,6 +394,22 @@ function CompletionOverview({
 
       </section>
 
+      {/* ======================================================
+    PROOF OF LEARN
+====================================================== */}
+
+      <ProofOfLearn
+        concept={concept}
+        sections={sections}
+      />
+      {/* ======================================================
+    MISTAKE TRACKER
+====================================================== */}
+
+      <MistakeTracker
+        student={student}
+        concept={concept}
+      />
 
       {/* ======================================================
           EVERY QUESTION + ANSWER
@@ -404,11 +422,11 @@ function CompletionOverview({
           <p className="section-label">
             COMPLETE ASSESSMENT REVIEW
           </p>
-
+          <br />
           <h2>
-            📝 Questions & Answers
+            Questions & Answers
           </h2>
-
+          <br />
           <p>
             Review every question from your
             learning journey along with the
@@ -542,49 +560,49 @@ function CompletionOverview({
                         {Array.isArray(
                           question.options
                         ) && (
-                          <div className="review-options">
+                            <div className="review-options">
 
-                            <p className="question-label">
-                              OPTIONS
-                            </p>
+                              <p className="question-label">
+                                OPTIONS
+                              </p>
 
-                            {question.options.map(
-                              (option, optionIndex) => {
+                              {question.options.map(
+                                (option, optionIndex) => {
 
-                                const optionValue =
-                                  typeof option ===
-                                  "object"
-                                    ? option.text ||
+                                  const optionValue =
+                                    typeof option ===
+                                      "object"
+                                      ? option.text ||
                                       option.label ||
                                       option.value
-                                    : option;
+                                      : option;
 
-                                return (
+                                  return (
 
-                                  <div
-                                    className="review-option"
-                                    key={optionIndex}
-                                  >
+                                    <div
+                                      className="review-option"
+                                      key={optionIndex}
+                                    >
 
-                                    <span>
-                                      {String.fromCharCode(
-                                        65 +
+                                      <span>
+                                        {String.fromCharCode(
+                                          65 +
                                           optionIndex
-                                      )}
-                                    </span>
+                                        )}
+                                      </span>
 
-                                    <p>
-                                      {optionValue}
-                                    </p>
+                                      <p>
+                                        {optionValue}
+                                      </p>
 
-                                  </div>
+                                    </div>
 
-                                );
-                              }
-                            )}
+                                  );
+                                }
+                              )}
 
-                          </div>
-                        )}
+                            </div>
+                          )}
 
 
                         {/* STUDENT ANSWER */}
@@ -614,85 +632,85 @@ function CompletionOverview({
 
                         {correctAnswer !==
                           null && (
-                          <div className="answer-block correct-answer">
+                            <div className="answer-block correct-answer">
 
-                            <div className="answer-heading">
+                              <div className="answer-heading">
 
-                              <span>
-                                ✅
-                              </span>
+                                <span>
+                                  ✓
+                                </span>
 
-                              <strong>
-                                Correct Answer
-                              </strong>
+                                <strong>
+                                  Correct Answer
+                                </strong>
+
+                              </div>
+
+                              {renderAnswer(
+                                correctAnswer
+                              )}
 
                             </div>
-
-                            {renderAnswer(
-                              correctAnswer
-                            )}
-
-                          </div>
-                        )}
+                          )}
 
 
                         {/* EXPECTED OUTPUT */}
 
                         {expectedOutput !==
                           null && (
-                          <div className="answer-block expected-output">
+                            <div className="answer-block expected-output">
 
-                            <div className="answer-heading">
+                              <div className="answer-heading">
 
-                              <span>
-                                💻
-                              </span>
+                                <span>
 
-                              <strong>
-                                Expected Output
-                              </strong>
+                                </span>
+
+                                <strong>
+                                  Expected Output
+                                </strong>
+
+                              </div>
+
+                              <pre>
+                                {String(
+                                  expectedOutput
+                                )}
+                              </pre>
 
                             </div>
-
-                            <pre>
-                              {String(
-                                expectedOutput
-                              )}
-                            </pre>
-
-                          </div>
-                        )}
+                          )}
 
 
                         {/* IMPLEMENTATION CODE */}
 
                         {section.key ===
                           "implement" && (
-                          <div className="answer-block code-review">
+                            <div className="answer-block code-review">
 
-                            <div className="answer-heading">
+                              <div className="answer-heading">
 
-                              <span>
-                                💻
-                              </span>
+                                <span>
 
-                              <strong>
-                                Implementation
-                              </strong>
+                                </span>
 
-                            </div>
+                                <strong>
+                                  Implementation
+                                </strong>
 
-                            <pre>
-                              {String(
-                                studentAnswer ||
+                              </div>
+
+                              <pre>
+                                {String(
+                                  studentAnswer ||
                                   question.code ||
                                   question.studentCode ||
                                   "No code recorded."
-                              )}
-                            </pre>
+                                )}
+                              </pre>
 
-                          </div>
-                        )}
+                            </div>
+                          )}
 
 
                         {/* EXPLANATION */}
@@ -703,7 +721,7 @@ function CompletionOverview({
                             <div className="answer-heading">
 
                               <span>
-                                💡
+
                               </span>
 
                               <strong>
@@ -726,7 +744,7 @@ function CompletionOverview({
                           <details className="review-hint">
 
                             <summary>
-                              💡 View Hint
+                              View Hint
                             </summary>
 
                             <p>
@@ -757,62 +775,62 @@ function CompletionOverview({
 
       {concept.examples &&
         Object.keys(concept.examples).length >
-          0 && (
+        0 && (
 
-        <section className="examples-section">
+          <section className="examples-section">
 
-          <div className="section-heading">
+            <div className="section-heading">
 
-            <p className="section-label">
-              REFERENCE MATERIAL
-            </p>
+              <p className="section-label">
+                REFERENCE MATERIAL
+              </p>
 
-            <h2>
-              💡 Examples
-            </h2>
+              <h2>
+                💡 Examples
+              </h2>
 
-            <p>
-              Examples used while learning this
-              concept.
-            </p>
+              <p>
+                Examples used while learning this
+                concept.
+              </p>
 
-          </div>
+            </div>
 
-          <div className="examples-grid">
+            <div className="examples-grid">
 
-            {Object.entries(
-              concept.examples
-            ).map(([name, code]) => (
+              {Object.entries(
+                concept.examples
+              ).map(([name, code]) => (
 
-              <div
-                className="example-card"
-                key={name}
-              >
+                <div
+                  className="example-card"
+                  key={name}
+                >
 
-                <h3>
-                  {formatExampleName(name)}
-                </h3>
+                  <h3>
+                    {formatExampleName(name)}
+                  </h3>
 
-                <pre>
-                  <code>
-                    {typeof code === "object"
-                      ? JSON.stringify(
+                  <pre>
+                    <code>
+                      {typeof code === "object"
+                        ? JSON.stringify(
                           code,
                           null,
                           2
                         )
-                      : code}
-                  </code>
-                </pre>
+                        : code}
+                    </code>
+                  </pre>
 
-              </div>
+                </div>
 
-            ))}
+              ))}
 
-          </div>
+            </div>
 
-        </section>
-      )}
+          </section>
+        )}
 
 
       {/* ======================================================
@@ -822,7 +840,7 @@ function CompletionOverview({
       <section className="recap-section">
 
         <h2>
-          🎯 Quick Recap
+          Quick Recap
         </h2>
 
         <div className="recap-card">

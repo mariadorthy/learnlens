@@ -3,7 +3,7 @@ import AdaptiveChallenge from "./AdaptiveChallenge";
 
 function DebugAISection({
   analysis,
-    question,
+  question,
   showAdaptiveChallenge,
   setShowAdaptiveChallenge,
 }) {
@@ -30,7 +30,7 @@ function DebugAISection({
       {showAdaptiveChallenge && (
         <AdaptiveChallenge
           weakness={analysis?.weakness}
-            question={question}
+          question={question}
           onBack={() => setShowAdaptiveChallenge(false)}
           onComplete={(adaptiveResult) => {
             console.log(

@@ -4,6 +4,10 @@ import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigat
 import AdaptiveRecovery from "../components/AdaptiveRecovery";
 import { explainWeaknesses } from "../data/concepts.js";
 
+import {
+  saveMistakeHistory,
+} from "../utils/mistakeTracker";
+
 const MASTERY_THRESHOLD = 80;
 
 const DEFAULT_WEAKNESS = {
@@ -11,6 +15,10 @@ const DEFAULT_WEAKNESS = {
   title: "Strengthen your explanation",
   description:
     "Review the concept and explain it again in your own words.",
+  explanation:
+    "Review the main idea behind this question and focus on explaining why the concept works.",
+  example: "",
+  challenge: null,
 };
 
 function ExplainAssessment({
@@ -37,13 +45,11 @@ function ExplainAssessment({
   const [loadingProgress, setLoadingProgress] =
     useState(true);
 
-  const [completedIds, setCompletedIds] = useState(
-    new Set()
-  );
-
+  const [completing, setCompleting] =
+    useState(false);
   const [questionScores, setQuestionScores] = useState({});
-  const [explainScore, setExplainScore] = useState(0);
-
+  const [questionAttempts, setQuestionAttempts] =
+    useState({});
   // True when we are retesting previously weak questions.
   const [isRetest, setIsRetest] = useState(false);
 
@@ -64,6 +70,18 @@ function ExplainAssessment({
     );
   };
 
+  const completedIds = useMemo(() => {
+    return new Set(
+      explainQuestions
+        .filter(
+          (q) =>
+            Number(questionScores[q.id] ?? 0) >=
+            MASTERY_THRESHOLD
+        )
+        .map((q) => q.id)
+    );
+  }, [questionScores, explainQuestions]);
+
   // ============================================================
   // EXPLAIN SCORE
   // ============================================================
@@ -73,23 +91,20 @@ function ExplainAssessment({
       return 0;
     }
 
-    const attemptedQuestions = explainQuestions.filter(
-      (q) => scores[q.id] !== undefined
-    );
-
-    if (!attemptedQuestions.length) {
-      return 0;
-    }
-
-    const totalScore = attemptedQuestions.reduce(
+    const totalScore = explainQuestions.reduce(
       (sum, q) => sum + Number(scores[q.id] ?? 0),
       0
     );
 
     return Math.round(
-      totalScore / attemptedQuestions.length
+      totalScore / explainQuestions.length
     );
   };
+
+  const explainScore = useMemo(
+    () => calculateExplainScore(questionScores),
+    [questionScores, explainQuestions]
+  );
 
   // ============================================================
   // KNOWLEDGE FINGERPRINT DIMENSION RESULT
@@ -128,11 +143,11 @@ function ExplainAssessment({
       };
     }
 
-    const attemptedQuestions = explainQuestions.filter(
+    const attempted = explainQuestions.filter(
       (q) => scores[q.id] !== undefined
     );
 
-    const correct = attemptedQuestions.filter(
+    const correct = explainQuestions.filter(
       (q) =>
         Number(scores[q.id] ?? 0) >=
         MASTERY_THRESHOLD
@@ -146,7 +161,7 @@ function ExplainAssessment({
       correct,
       total,
       score,
-      attempted: attemptedQuestions.length,
+      attempted: attempted.length,
     };
   };
 
@@ -154,31 +169,16 @@ function ExplainAssessment({
   // DISPLAYED SCORE
   // ============================================================
 
-  const calculatedExplainScore = useMemo(
-    () => calculateExplainScore(questionScores),
-    [questionScores, explainQuestions]
-  );
-
-  useEffect(() => {
-    setExplainScore(calculatedExplainScore);
-  }, [calculatedExplainScore]);
-
   // ============================================================
   // FIND WEAKEST QUESTION
   // ============================================================
 
   const findWeakestQuestion = (scores) => {
-    const weakQuestions = explainQuestions.filter(
-      (q) =>
-        Number(scores[q.id] ?? 0) <
-        MASTERY_THRESHOLD
-    );
-
-    if (!weakQuestions.length) {
+    if (!explainQuestions.length) {
       return null;
     }
 
-    return weakQuestions.reduce(
+    return explainQuestions.reduce(
       (weakest, current) => {
         const weakestScore = Number(
           scores[weakest.id] ?? 0
@@ -188,10 +188,23 @@ function ExplainAssessment({
           scores[current.id] ?? 0
         );
 
+        if (
+          currentScore >= MASTERY_THRESHOLD
+        ) {
+          return weakest;
+        }
+
+        if (
+          weakestScore >= MASTERY_THRESHOLD
+        ) {
+          return current;
+        }
+
         return currentScore < weakestScore
           ? current
           : weakest;
-      }
+      },
+      explainQuestions[0]
     );
   };
 
@@ -207,7 +220,7 @@ function ExplainAssessment({
       (q, index) =>
         index > currentIndex &&
         Number(scores[q.id] ?? 0) <
-          MASTERY_THRESHOLD
+        MASTERY_THRESHOLD
     );
   };
 
@@ -229,13 +242,17 @@ function ExplainAssessment({
 
   const getWeakness = (questionToUse) => {
     if (!questionToUse) {
-      return DEFAULT_WEAKNESS;
+      return {
+        ...DEFAULT_WEAKNESS,
+        questionId: null,
+      };
     }
 
-    return (
-      explainWeaknesses?.[questionToUse.id] ||
-      DEFAULT_WEAKNESS
-    );
+    return {
+      ...(explainWeaknesses?.[questionToUse.id] ||
+        DEFAULT_WEAKNESS),
+      questionId: questionToUse.id,
+    };
   };
 
   // ============================================================
@@ -292,19 +309,11 @@ function ExplainAssessment({
     score,
   }) => {
     return {
-      recall: null,
-
       explain: {
         score: Number(score ?? 0),
         correct: Number(correct ?? 0),
         total: Number(total ?? 0),
       },
-
-      predict: null,
-      implement: null,
-      debug: null,
-      apply: null,
-
       updated_dimension: "explain",
       updated_at: new Date().toISOString(),
     };
@@ -337,6 +346,8 @@ function ExplainAssessment({
             dimension: "explain",
 
             fingerprint,
+            question_attempts:
+              questionAttempts,
 
             // Explicit dimension values.
             // These make it easier for the backend
@@ -380,31 +391,45 @@ function ExplainAssessment({
   const completeExplainAssessment = async (
     scores = questionScores
   ) => {
-    const dimensionResult =
-      calculateDimensionResult(scores);
+    if (completing) {
+      return;
+    }
 
-    console.log(
-      "EXPLAIN DIMENSION COMPLETE:",
-      dimensionResult
-    );
+    setCompleting(true);
 
-    // Update fingerprint before moving to next dimension.
-    await updateKnowledgeFingerprint(
-      dimensionResult
-    );
+    try {
+      const dimensionResult =
+        calculateDimensionResult(scores);
 
-    onComplete({
-      dimension: "explain",
-      correct: dimensionResult.correct,
-      total: dimensionResult.total,
-      score: dimensionResult.score,
-
-      // Useful if parent component also keeps
-      // the fingerprint.
-      fingerprint: buildKnowledgeFingerprint(
+      console.log(
+        "EXPLAIN DIMENSION COMPLETE:",
         dimensionResult
-      ),
-    });
+      );
+
+      const fingerprintSaved =
+        await updateKnowledgeFingerprint(
+          dimensionResult
+        );
+
+      if (!fingerprintSaved) {
+        console.warn(
+          "Explain fingerprint could not be saved."
+        );
+      }
+
+      onComplete({
+        dimension: "explain",
+        correct: dimensionResult.correct,
+        total: dimensionResult.total,
+        score: dimensionResult.score,
+        fingerprint:
+          buildKnowledgeFingerprint(
+            dimensionResult
+          ),
+      });
+    } finally {
+      setCompleting(false);
+    }
   };
 
   // ============================================================
@@ -421,6 +446,173 @@ function ExplainAssessment({
     }
 
     return "weak_explanation";
+  };
+  const trackExplainMistake = async ({
+    question,
+    answer,
+    score,
+    mistakeType,
+    weakness,
+    matchedKeywords,
+    attemptNumber,
+    missingKeywords,
+  }) => {
+    // Do not create mistake history for mastered answers.
+    if (score >= MASTERY_THRESHOLD) {
+      return;
+    }
+
+    const correctAnswer =
+      question?.expectedPoints?.join(" | ") || "";
+
+    const misconception =
+      missingKeywords?.length > 0
+        ? `Missing key concepts: ${missingKeywords.join(", ")}`
+        : "The explanation did not demonstrate the required understanding.";
+
+    const whatHappened =
+      score >= 50
+        ? "The student provided a partially correct explanation but did not include enough of the required reasoning."
+        : "The student's explanation did not demonstrate enough of the required concept knowledge.";
+
+    const recommendation =
+      weakness?.description ||
+      "Review the concept and explain the reasoning again in your own words.";
+
+    try {
+      await saveMistakeHistory({
+        API_URL,
+
+        // ----------------------------------------------------------
+        // STUDENT
+        // ----------------------------------------------------------
+
+        studentId: student?.id,
+
+        // ----------------------------------------------------------
+        // LEARNING HIERARCHY
+        // ----------------------------------------------------------
+
+        topic: concept?.id || "loops",
+
+        concept: concept?.id || "loops",
+
+        dimension: "explain",
+
+        // ----------------------------------------------------------
+        // QUESTION
+        // ----------------------------------------------------------
+
+        questionId: question?.id,
+
+        questionType: "qna",
+
+        questionFormat: "free_text",
+
+        question:
+          question?.question || "",
+
+        // ----------------------------------------------------------
+        // ATTEMPT
+        // ----------------------------------------------------------
+
+        score: score ?? 0,
+
+        maxScore: 100,
+
+        attemptNumber,
+
+        // ----------------------------------------------------------
+        // STUDENT ANSWER
+        // ----------------------------------------------------------
+
+        studentAnswer: answer || "",
+
+        correctAnswer,
+
+        // ----------------------------------------------------------
+        // MISTAKE
+        // ----------------------------------------------------------
+
+        mistakeType,
+
+        mistake:
+          weakness?.title ||
+          mistakeType ||
+          "Incorrect explanation",
+
+        // ----------------------------------------------------------
+        // WEAKNESS
+        // ----------------------------------------------------------
+
+        weakness:
+          weakness?.title ||
+          weakness?.type ||
+          null,
+
+        weaknessType:
+          weakness?.type ||
+          "general_explain",
+
+        // ----------------------------------------------------------
+        // ANALYSIS
+        // ----------------------------------------------------------
+
+        misconception,
+
+        whatHappened,
+
+        recommendation,
+
+        // ----------------------------------------------------------
+        // NOT CODE
+        // ----------------------------------------------------------
+
+        code: null,
+
+        errorMessage: null,
+
+        expectedOutput: null,
+
+        actualOutput: null,
+
+        // ----------------------------------------------------------
+        // RETEST
+        // ----------------------------------------------------------
+
+        retestMode: isRetest,
+
+        isRetest,
+
+        // ----------------------------------------------------------
+        // EXTRA
+        // ----------------------------------------------------------
+
+        metadata: {
+          assessment_stage: "explain",
+
+          question_index:
+            questionIndex,
+
+          mastery_threshold:
+            MASTERY_THRESHOLD,
+
+          matched_keywords:
+            matchedKeywords || [],
+
+          missing_keywords:
+            missingKeywords || [],
+
+          fingerprint_dimension:
+            "explain",
+        },
+      });
+    } catch (error) {
+      console.warn(
+        "Could not save Explain mistake history:",
+        error
+      );
+    }
   };
 
   // ============================================================
@@ -463,38 +655,27 @@ function ExplainAssessment({
         const loadedScores =
           data.question_scores || {};
 
+        const loadedAttempts =
+          data?.question_attempts &&
+            typeof data.question_attempts === "object"
+            ? data.question_attempts
+            : {};
         // ======================================================
         // QUESTIONS MASTERED
         // ======================================================
 
-        const loadedCompletedIds =
-          new Set(
-            explainQuestions
-              .filter(
-                (q) =>
-                  Number(
-                    loadedScores[q.id] ?? 0
-                  ) >= MASTERY_THRESHOLD
-              )
-              .map((q) => q.id)
-          );
-
-        setCompletedIds(
-          loadedCompletedIds
-        );
-
         setQuestionScores(
           loadedScores
+        );
+
+        setQuestionAttempts(
+          loadedAttempts
         );
 
         const loadedExplainScore =
           calculateExplainScore(
             loadedScores
           );
-
-        setExplainScore(
-          loadedExplainScore
-        );
 
         console.log(
           "LOADED EXPLAIN SCORE:",
@@ -504,6 +685,7 @@ function ExplainAssessment({
         // ======================================================
         // ALL QUESTIONS MASTERED
         // ======================================================
+
 
         const allMastered =
           explainQuestions.length > 0 &&
@@ -516,8 +698,10 @@ function ExplainAssessment({
 
         if (allMastered) {
           console.log(
-            "ALL EXPLAIN QUESTIONS MASTERED → MOVING TO NEXT"
+            "EXPLAIN RETEST COMPLETE → NEXT DIMENSION"
           );
+
+          setIsRetest(false);
 
           await completeExplainAssessment(
             loadedScores
@@ -525,7 +709,6 @@ function ExplainAssessment({
 
           return;
         }
-
         // ======================================================
         // FIRST UNMASTERED QUESTION
         // ======================================================
@@ -676,6 +859,14 @@ function ExplainAssessment({
   // ============================================================
   // EVALUATE ANSWER
   // ============================================================
+  const keywordMatchesAnswer = (
+    keyword,
+    answer
+  ) => {
+    return answer
+      .toLowerCase()
+      .includes(keyword.toLowerCase());
+  };
 
   const evaluateAnswer = (text) => {
     const lower = text.toLowerCase().trim();
@@ -684,140 +875,18 @@ function ExplainAssessment({
       return 0;
     }
 
-    const conceptGroups = {
-      loop: [
-        "loop",
-        "loops",
-        "iteration",
-        "iterations",
-        "repeat",
-        "repeats",
-        "repeated",
-        "repetition",
-      ],
+    const keywords = question.keywords || [];
 
-      for: [
-        "for loop",
-        "for",
-        "iterate",
-        "iterates",
-        "iteration",
-        "sequence",
-      ],
-
-      while: [
-        "while",
-        "while loop",
-        "condition",
-      ],
-
-      true: [
-        "true",
-        "true condition",
-        "condition is true",
-        "while true",
-      ],
-
-      false: [
-        "false",
-        "condition becomes false",
-        "condition is false",
-        "no longer true",
-        "not true",
-      ],
-
-      infinite: [
-        "infinite",
-        "infinite loop",
-        "run forever",
-        "runs forever",
-        "never stop",
-        "never stops",
-        "does not stop",
-        "doesn't stop",
-        "continues forever",
-        "keeps running",
-      ],
-
-      update: [
-        "update",
-        "updates",
-        "change the variable",
-        "changes the variable",
-        "increment",
-        "incrementing",
-        "decrement",
-        "decrementing",
-        "modify the variable",
-        "changes the condition",
-      ],
-
-      range: [
-        "range",
-        "sequence of numbers",
-        "numbers",
-      ],
-
-      break: [
-        "break",
-        "stop the loop",
-        "stops the loop",
-        "terminate",
-        "terminates",
-        "ends the loop",
-        "end the loop",
-      ],
-
-      continue: [
-        "continue",
-        "skip",
-        "skips",
-        "skip the current iteration",
-        "next iteration",
-      ],
-
-      nested: [
-        "nested",
-        "inside another loop",
-        "loop inside",
-        "inner loop",
-        "outer loop",
-      ],
-    };
-
-    const keywords =
-      question.keywords || [];
-
-    if (keywords.length === 0) {
+    if (!keywords.length) {
       return 0;
     }
 
-    let matched = 0;
-
-    keywords.forEach((keyword) => {
-      const key =
-        keyword.toLowerCase();
-
-      if (lower.includes(key)) {
-        matched++;
-        return;
-      }
-
-      const group =
-        conceptGroups[key];
-
-      if (
-        group &&
-        group.some((phrase) =>
-          lower.includes(phrase)
-        )
-      ) {
-        matched++;
-      }
-    });
-
+    const matchedKeywords = keywords.filter(
+      (keyword) =>
+        keywordMatchesAnswer(keyword, lower)
+    );
     const keywordScore =
-      (matched / keywords.length) * 100;
+      (matchedKeywords.length / keywords.length) * 100;
 
     let detailBonus = 0;
 
@@ -829,10 +898,25 @@ function ExplainAssessment({
       detailBonus += 5;
     }
 
+    const sentenceCount =
+      lower
+        .split(/[.!?]+/)
+        .map((sentence) => sentence.trim())
+        .filter(Boolean)
+        .length;
+
+    if (sentenceCount >= 2) {
+      detailBonus += 5;
+    }
+
+    if (sentenceCount >= 3) {
+      detailBonus += 5;
+    }
+
     return Math.min(
       100,
       Math.round(
-        keywordScore * 0.9 +
+        keywordScore * 0.8 +
         detailBonus
       )
     );
@@ -904,6 +988,16 @@ function ExplainAssessment({
       const mistakeType =
         getMistakeType(score);
 
+      const attemptNumber =
+        Number(
+          questionAttempts[question.id] ?? 0
+        ) + 1;
+
+      const updatedAttempts = {
+        ...questionAttempts,
+        [question.id]: attemptNumber,
+      };
+
       // ======================================================
       // UPDATED QUESTION SCORES
       // ======================================================
@@ -948,16 +1042,18 @@ function ExplainAssessment({
 
       const matchedKeywords =
         keywords.filter((keyword) =>
-          lowerAnswer.includes(
-            keyword.toLowerCase()
+          keywordMatchesAnswer(
+            keyword,
+            lowerAnswer
           )
         );
 
       const missingKeywords =
         keywords.filter(
           (keyword) =>
-            !lowerAnswer.includes(
-              keyword.toLowerCase()
+            !keywordMatchesAnswer(
+              keyword,
+              lowerAnswer
             )
         );
 
@@ -1040,7 +1136,7 @@ function ExplainAssessment({
             recommendation:
               score < MASTERY_THRESHOLD
                 ? weakness?.description ||
-                  "Review the concept and explain it again."
+                "Review the concept and explain it again."
                 : "Continue to the next learning dimension.",
 
             // ==================================================
@@ -1079,6 +1175,13 @@ function ExplainAssessment({
             // ATTEMPT METADATA
             // ==================================================
 
+            attempt_number:
+              attemptNumber,
+
+            // Complete per-question attempt map.
+            question_attempts:
+              updatedAttempts,
+
             is_mastered:
               score >=
               MASTERY_THRESHOLD,
@@ -1116,35 +1219,30 @@ function ExplainAssessment({
       // UPDATE LOCAL STATE
       // ======================================================
 
+      if (score < MASTERY_THRESHOLD) {
+        await trackExplainMistake({
+          answer,
+          score,
+          mistakeType,
+          attemptNumber,
+          question,
+          weakness,
+          matchedKeywords,
+          missingKeywords,
+        });
+      }
+
       setQuestionScores(
         updatedScores
       );
-
-      setExplainScore(
-        updatedExplainScore
+      setQuestionAttempts(
+        updatedAttempts
       );
-
       // ======================================================
       // MASTERY
       // ======================================================
 
-      if (
-        score >=
-        MASTERY_THRESHOLD
-      ) {
-        setCompletedIds(
-          (previous) => {
-            const updated =
-              new Set(previous);
 
-            updated.add(
-              question.id
-            );
-
-            return updated;
-          }
-        );
-      }
 
       // ======================================================
       // UPDATE FINGERPRINT
@@ -1157,9 +1255,9 @@ function ExplainAssessment({
       //
       // ======================================================
 
-      updateKnowledgeFingerprint(
-        dimensionResult
-      );
+      // updateKnowledgeFingerprint(
+      //   dimensionResult
+      // );
 
       // ======================================================
       // RESULT
@@ -1204,24 +1302,24 @@ function ExplainAssessment({
   // ============================================================
 
   const tryAgain = () => {
-    const weakness =
-      getWeakness(question);
+    const weakness = {
+      ...getWeakness(question),
+      questionId: question.id,
+    };
 
     console.log(
       "EXPLAIN WEAKNESS:",
       weakness
     );
 
-    setAdaptiveWeakness(
-      weakness
-    );
+    setAdaptiveWeakness(weakness);
   };
 
   // ============================================================
   // CONTINUE TO NEXT QUESTION
   // ============================================================
 
-  const continueToNextQuestion = () => {
+  const continueToNextQuestion = async () => {
     const latestScores =
       questionScores;
 
@@ -1273,16 +1371,17 @@ function ExplainAssessment({
 
       if (allMastered) {
         console.log(
-          "EXPLAIN RETEST COMPLETE → NEXT DIMENSION"
+          "EXPLAIN MASTERED → MOVING TO NEXT DIMENSION"
         );
 
-        completeExplainAssessment(
+        setIsRetest(false);
+
+        await completeExplainAssessment(
           latestScores
         );
 
         return;
       }
-
       // ======================================================
       // STILL WEAK
       // ======================================================
@@ -1389,54 +1488,77 @@ function ExplainAssessment({
   // RECOVERY COMPLETE
   // ============================================================
 
-  const handleRecoveryComplete = () => {
+  const handleRecoveryComplete = async (recoveryResult) => {
     console.log(
-      "ADAPTIVE EXPLAIN RECOVERY COMPLETE"
+      "ADAPTIVE EXPLAIN RECOVERY COMPLETE:",
+      recoveryResult
     );
 
-    setAdaptiveWeakness(null);
-    setAnswer("");
-    setResult(null);
-    setIsRetest(true);
+    const recoveredQuestionId =
+      recoveryResult?.questionId ||
+      adaptiveWeakness?.questionId;
 
-    const weakestQuestion =
-      findWeakestQuestion(
-        questionScores
+    if (!recoveredQuestionId) {
+      console.warn(
+        "No recovery question ID found."
       );
-
-    if (!weakestQuestion) {
-      const dimensionResult =
-        calculateDimensionResult(
-          questionScores
-        );
-
-      if (
-        dimensionResult.correct ===
-        dimensionResult.total
-      ) {
-        completeExplainAssessment(
-          questionScores
-        );
-      }
-
       return;
     }
 
-    const weakestIndex =
+    // Recovery successfully demonstrates understanding.
+    // Mark the recovered question as mastered.
+    const updatedScores = {
+      ...questionScores,
+      [recoveredQuestionId]: MASTERY_THRESHOLD,
+    };
+
+    console.log(
+      "UPDATED EXPLAIN SCORES AFTER RECOVERY:",
+      updatedScores
+    );
+
+    setQuestionScores(updatedScores);
+    setAdaptiveWeakness(null);
+    setAnswer("");
+    setResult(null);
+
+    // We now enter retest mode.
+    setIsRetest(true);
+
+    // Return to the question that was recovered.
+    const recoveredIndex =
       explainQuestions.findIndex(
-        (q) =>
-          q.id ===
-          weakestQuestion.id
+        (q) => q.id === recoveredQuestionId
       );
 
-    if (weakestIndex !== -1) {
+    if (recoveredIndex !== -1) {
       console.log(
-        "STARTING EXPLAIN RETEST AT:",
-        weakestQuestion.id
+        "RETURNING TO RECOVERED QUESTION:",
+        recoveredIndex
       );
 
-      setQuestionIndex(
-        weakestIndex
+      setQuestionIndex(recoveredIndex);
+    }
+
+    // If recovery caused every question to become mastered,
+    // finish the Explain dimension.
+    const allMastered =
+      explainQuestions.every(
+        (q) =>
+          Number(
+            updatedScores[q.id] ?? 0
+          ) >= MASTERY_THRESHOLD
+      );
+
+    if (allMastered) {
+      console.log(
+        "ALL EXPLAIN QUESTIONS MASTERED AFTER RECOVERY"
+      );
+
+      setIsRetest(false);
+
+      await completeExplainAssessment(
+        updatedScores
       );
     }
   };
@@ -1457,7 +1579,7 @@ function ExplainAssessment({
         className="back-button"
         onClick={onBack}
       >
-        ← Back to learning
+        ← Back
       </button>
 
       {/* ======================================================
@@ -1492,7 +1614,7 @@ function ExplainAssessment({
 
         <span>
           {explainScore >=
-          MASTERY_THRESHOLD
+            MASTERY_THRESHOLD
             ? " ✓ Mastered"
             : ` — ${MASTERY_THRESHOLD}% needed to continue`}
         </span>
@@ -1557,13 +1679,9 @@ function ExplainAssessment({
           </p>
 
           <AdaptiveRecovery
-            weakness={
-              adaptiveWeakness
-            }
+            weakness={adaptiveWeakness}
             concept={concept}
-            onComplete={
-              handleRecoveryComplete
-            }
+            onComplete={handleRecoveryComplete}
           />
         </div>
       ) : (
@@ -1605,7 +1723,7 @@ function ExplainAssessment({
                 <strong>
                   {
                     questionScores[
-                      question.id
+                    question.id
                     ]
                   }%
                 </strong>
@@ -1620,29 +1738,29 @@ function ExplainAssessment({
 
               {question.expectedPoints
                 ?.length > 0 && (
-                <div className="review-points">
+                  <div className="review-points">
 
-                  <p className="answer-label">
-                    WHAT YOU SHOULD
-                    UNDERSTAND
-                  </p>
+                    <p className="answer-label">
+                      WHAT YOU SHOULD
+                      UNDERSTAND
+                    </p>
 
-                  <ul>
-                    {question.expectedPoints.map(
-                      (
-                        point,
-                        index
-                      ) => (
-                        <li
-                          key={`${question.id}-point-${index}`}
-                        >
-                          {point}
-                        </li>
-                      )
-                    )}
-                  </ul>
-                </div>
-              )}
+                    <ul>
+                      {question.expectedPoints.map(
+                        (
+                          point,
+                          index
+                        ) => (
+                          <li
+                            key={`${question.id}-point-${index}`}
+                          >
+                            {point}
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  </div>
+                )}
 
               <button
                 type="button"
@@ -1748,7 +1866,7 @@ function ExplainAssessment({
 
                   {result.success &&
                     result.score <
-                      MASTERY_THRESHOLD &&
+                    MASTERY_THRESHOLD &&
                     result.missingKeywords
                       ?.length > 0 && (
                       <div className="mistake-analysis">
@@ -1797,7 +1915,7 @@ function ExplainAssessment({
 
                   {result.success &&
                     result.score <
-                      MASTERY_THRESHOLD && (
+                    MASTERY_THRESHOLD && (
                       <>
                         <button
                           type="button"
@@ -1830,7 +1948,7 @@ function ExplainAssessment({
 
                   {result.success &&
                     result.score >=
-                      MASTERY_THRESHOLD && (
+                    MASTERY_THRESHOLD && (
                       <div className="mastered-result">
 
                         <p>
@@ -1849,10 +1967,13 @@ function ExplainAssessment({
                           onClick={
                             continueToNextQuestion
                           }
+                          disabled={completing}
                         >
-                          {isRetest
-                            ? "Continue Retest →"
-                            : "Continue →"}
+                          {completing
+                            ? "Completing..."
+                            : isRetest
+                              ? "Continue Retest →"
+                              : "Continue →"}
                         </button>
 
                       </div>

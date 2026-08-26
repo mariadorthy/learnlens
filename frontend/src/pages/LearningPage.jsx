@@ -1,13 +1,17 @@
 function LearningPage({
   concept,
   onBack,
-  onStartTheory,
+  onStartConcept,
 }) {
+  // -----------------------------------------
+  // SAFETY CHECK
+  // -----------------------------------------
 
   if (!concept) {
     return (
       <main className="concept-page">
         <button
+          type="button"
           className="back-button"
           onClick={onBack}
         >
@@ -19,59 +23,101 @@ function LearningPage({
     );
   }
 
+  // -----------------------------------------
+  // LEARNING PAGE
+  // -----------------------------------------
+
   return (
     <main className="concept-page">
+
+      {/* BACK */}
+
       <button
+        type="button"
         className="back-button"
         onClick={onBack}
       >
         ← Back
       </button>
 
+      {/* STEP */}
+
       <p className="eyebrow">
         STEP 1 • LEARN
       </p>
+
+      {/* TITLE */}
 
       <h1>
         {concept.title || concept.name}
       </h1>
 
+      {/* DESCRIPTION */}
+
       <p className="concept-description">
         {concept.description}
       </p>
 
+      {/* LEARNING CONTENT */}
+
       <section className="learning-card">
-        <h2>Understand the concept</h2>
+
+        <h2>
+          Understand the concept
+        </h2>
 
         <p>
           {concept.explanation}
         </p>
 
-        <h3>Example</h3>
+        {/* EXAMPLES */}
 
-        <h4>For Loop Example</h4>
+        <h3>
+          Example
+        </h3>
 
-        <pre>
-          <code>
-            {concept.examples?.forLoop}
-          </code>
-        </pre>
+        {/* FOR LOOP */}
 
-        <h4>While Loop Example</h4>
+        {concept.examples?.forLoop && (
+          <>
+            <h4>
+              For Loop Example
+            </h4>
 
-        <pre>
-          <code>
-            {concept.examples?.whileLoop}
-          </code>
-        </pre>
+            <pre>
+              <code>
+                {concept.examples.forLoop}
+              </code>
+            </pre>
+          </>
+        )}
+
+        {/* WHILE LOOP */}
+
+        {concept.examples?.whileLoop && (
+          <>
+            <h4>
+              While Loop Example
+            </h4>
+
+            <pre>
+              <code>
+                {concept.examples.whileLoop}
+              </code>
+            </pre>
+          </>
+        )}
+
+        {/* GO TO CONCEPT PAGE */}
 
         <button
           type="button"
           className="primary-button"
-          onClick={onStartTheory}
+          onClick={onStartConcept}
         >
-          I understand — Test me →
+          I understand — Continue →
         </button>
+
       </section>
     </main>
   );

@@ -12,19 +12,23 @@ function AdaptiveRecovery({
   const challenge = weakness?.challenge;
 
   const checkChallenge = () => {
-    if (selectedAnswer === null || !challenge) return;
+    if (selectedAnswer === null || !challenge) {
+      return;
+    }
 
     const correct =
-      Number(selectedAnswer) === Number(challenge.correctAnswer);
+      Number(selectedAnswer) ===
+      Number(challenge.correctAnswer);
 
     setChallengeResult(correct);
 
     if (correct) {
       setTimeout(() => {
         onComplete({
-          dimension: "recall",
+          dimension: "explain",
           score: 100,
           source: "adaptive_recovery",
+          questionId: weakness?.questionId,
         });
       }, 700);
     }
@@ -32,7 +36,6 @@ function AdaptiveRecovery({
 
   return (
     <div className="adaptive-recovery">
-
       {stage === "learn" && (
         <>
           <p className="section-label">

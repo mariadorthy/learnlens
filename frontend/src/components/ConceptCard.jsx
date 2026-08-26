@@ -2,13 +2,13 @@ function ConceptCard({ concept, onClick }) {
   const isLocked = concept.status === "locked";
 
   const statusText = {
-  completed: "Mastered",
-  current: "Continue Learning",
-  locked: concept.available === false
-    ? "Coming Soon"
-    : `Complete ${concept.prerequisite || "previous topics"} first`,
-  reinforcement: "Needs Reinforcement",
-};
+    completed: "Mastered",
+    current: "Continue Learning",
+    locked: concept.available === false
+      ? "Coming Soon"
+      : `Complete ${concept.prerequisite || "previous topics"} first`,
+    reinforcement: "Needs Reinforcement",
+  };
 
   const statusIcon = {
     completed: "✓",

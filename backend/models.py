@@ -75,6 +75,7 @@ class Student(Base):
         String,
         nullable=False
     )
+
 class LearningExecution(Base):
     __tablename__ = "learning_executions"
 
@@ -98,4 +99,71 @@ class LearningExecution(Base):
     created_at = Column(
         DateTime,
         default=datetime.utcnow,
+    )
+
+class MistakeHistory(Base):
+    __tablename__ = "mistake_history"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    student_id = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    concept = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    dimension = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    question_type = Column(
+        String,
+        nullable=False,
+        index=True
+    )
+
+    question_id = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    mistake_type = Column(
+        String,
+        nullable=True,
+        index=True
+    )
+
+    mistake_detail = Column(
+        Text,
+        nullable=True
+    )
+
+    count = Column(
+        Integer,
+        default=1,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
     )

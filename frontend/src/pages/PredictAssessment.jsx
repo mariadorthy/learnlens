@@ -4,6 +4,10 @@ import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigat
 import AdaptiveRecovery from "../components/AdaptiveRecovery";
 import { predictWeaknesses } from "../data/concepts.js";
 
+import {
+  saveMistakeHistory,
+} from "../utils/mistakeTracker";
+
 const MASTERY_THRESHOLD = 80;
 
 function PredictAssessment({
@@ -17,9 +21,11 @@ function PredictAssessment({
   const [result, setResult] = useState(null);
   const [saving, setSaving] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(true);
-
+  const [latestSubmittedScores, setLatestSubmittedScores] =
+    useState(null);
   const [completedIds, setCompletedIds] = useState(new Set());
   const [questionScores, setQuestionScores] = useState({});
+  const [questionAttempts, setQuestionAttempts] = useState({});
   const [predictScore, setPredictScore] = useState(0);
 
   const [adaptiveWeakness, setAdaptiveWeakness] = useState(null);
@@ -28,6 +34,92 @@ function PredictAssessment({
   const [isRetest, setIsRetest] = useState(false);
 
   const API_URL = import.meta.env.VITE_API_URL;
+
+  // ============================================================
+  // TRACK THEORY MISTAKE
+  // ============================================================
+
+  const trackTheoryMistake = async ({
+    question,
+    mistakeType,
+    score,
+    attemptNumber,
+    weakness,
+    weaknessType,
+  }) => {
+    return saveMistakeHistory({
+      API_URL,
+
+      studentId: student?.id,
+
+      topic: concept?.id || "loops",
+      concept: concept?.id || "loops",
+      dimension: "recall",
+
+      questionId: question?.id,
+      questionType: "mcq",
+      questionFormat: "multiple_choice",
+
+      question: question?.question || "",
+
+      score: score ?? 0,
+      maxScore: 100,
+      attemptNumber,
+
+      studentAnswer:
+        selectedAnswer !== null
+          ? question?.options?.[Number(selectedAnswer)]
+          : null,
+
+      correctAnswer:
+        question?.options?.[
+        Number(question?.correctAnswer)
+        ],
+
+      mistakeType,
+
+      mistake:
+        weakness?.title ||
+        mistakeType ||
+        "Incorrect theory answer",
+
+      weakness:
+        weakness?.title ||
+        weakness?.type ||
+        null,
+
+      weaknessType:
+        weaknessType ||
+        weakness?.type ||
+        null,
+
+      misconception:
+        weakness?.description ||
+        null,
+
+      whatHappened:
+        "The student selected an incorrect answer.",
+
+      recommendation:
+        "Review the concept and retry the question.",
+
+      code: null,
+      errorMessage: null,
+      expectedOutput: null,
+      actualOutput: null,
+
+      retestMode: isRetest,
+      isRetest,
+
+      metadata: {
+        assessment_stage: "theory",
+        question_index: questionIndex,
+        selected_index: selectedAnswer,
+        correct_index: Number(question?.correctAnswer),
+        mastery_threshold: MASTERY_THRESHOLD,
+      },
+    });
+  };
 
   const predictQuestions = concept?.predictQuestions || [];
 
@@ -84,10 +176,166 @@ function PredictAssessment({
   };
 
   // ============================================================
+  // TRACK PREDICT MISTAKE
+  // ============================================================
+
+  const trackPredictMistake = async ({
+    question,
+    mistakeType,
+    score,
+    attemptNumber,
+    weakness,
+    weaknessType,
+  }) => {
+    return saveMistakeHistory({
+      API_URL,
+
+      studentId: student?.id,
+
+      // --------------------------------------------------------
+      // LEARNING HIERARCHY
+      // --------------------------------------------------------
+
+      topic: concept?.id || "loops",
+
+      concept: concept?.id || "loops",
+
+      dimension: "predict",
+
+      // --------------------------------------------------------
+      // QUESTION
+      // --------------------------------------------------------
+
+      questionId: question?.id,
+
+      questionType: "mcq",
+
+      questionFormat: "multiple_choice",
+
+      question:
+        question?.question || "",
+
+      // --------------------------------------------------------
+      // PREDICT CODE
+      // --------------------------------------------------------
+
+      code:
+        question?.code || null,
+
+      expectedOutput:
+        question?.expectedOutput ||
+        question?.output ||
+        null,
+
+      // --------------------------------------------------------
+      // ATTEMPT
+      // --------------------------------------------------------
+
+      score: score ?? 0,
+
+      maxScore: 100,
+
+      attemptNumber,
+
+      // --------------------------------------------------------
+      // STUDENT ANSWER
+      // --------------------------------------------------------
+
+      studentAnswer:
+        selectedAnswer !== null
+          ? question?.options?.[
+          Number(selectedAnswer)
+          ]
+          : null,
+
+      correctAnswer:
+        question?.options?.[
+        Number(question?.correctAnswer)
+        ],
+
+      // --------------------------------------------------------
+      // MISTAKE
+      // --------------------------------------------------------
+
+      mistakeType,
+
+      mistake:
+        weakness?.title ||
+        mistakeType ||
+        "Incorrect prediction",
+
+      // --------------------------------------------------------
+      // WEAKNESS
+      // --------------------------------------------------------
+
+      weakness:
+        weakness?.title ||
+        weakness?.type ||
+        null,
+
+      weaknessType:
+        weaknessType ||
+        weakness?.type ||
+        null,
+
+      // --------------------------------------------------------
+      // ANALYSIS
+      // --------------------------------------------------------
+
+      misconception:
+        weakness?.description ||
+        null,
+
+      whatHappened:
+        "The student selected an incorrect prediction.",
+
+      recommendation:
+        "Review the code carefully, predict its behavior again, and retry the question.",
+
+      // --------------------------------------------------------
+      // NOT A CODE EXECUTION ERROR
+      // --------------------------------------------------------
+
+      errorMessage: null,
+
+      actualOutput: null,
+
+      // --------------------------------------------------------
+      // RETEST
+      // --------------------------------------------------------
+
+      retestMode: isRetest,
+
+      isRetest,
+
+      // --------------------------------------------------------
+      // EXTRA
+      // --------------------------------------------------------
+
+      metadata: {
+        assessment_stage: "predict",
+
+        question_index:
+          questionIndex,
+
+        selected_index:
+          selectedAnswer,
+
+        correct_index:
+          Number(question?.correctAnswer),
+
+        mastery_threshold:
+          MASTERY_THRESHOLD,
+      },
+    });
+  };
+
+  // ============================================================
   // UPDATE KNOWLEDGE FINGERPRINT
   // ============================================================
 
   const updateKnowledgeFingerprint = async (scores) => {
+
     const fingerprint = getPredictFingerprint(scores);
 
     console.log(
@@ -229,10 +477,44 @@ function PredictAssessment({
       );
     }
 
-    // IMPORTANT:
-    // The assessment itself is complete even if the
-    // fingerprint endpoint is missing.
-    onComplete();
+    const finalScore =
+      calculatePredictScore(scores);
+
+    const fingerprint =
+      getPredictFingerprint(scores);
+
+    const masteredCount =
+      predictQuestions.filter(
+        (question) =>
+          Number(
+            scores[question.id] ?? 0
+          ) >= MASTERY_THRESHOLD
+      ).length;
+
+    const total =
+      predictQuestions.length;
+
+    console.log(
+      "PREDICT ASSESSMENT COMPLETE:",
+      {
+        dimension: "predict",
+        correct: masteredCount,
+        total,
+        score: finalScore,
+        source: "predict_assessment",
+        questionScores: scores,
+        fingerprint,
+      }
+    );
+
+    onComplete({
+      dimension: "predict",
+      correct: masteredCount,
+      total,
+      score: finalScore,
+      source: "predict_assessment",
+      questionScores: scores,
+    });
   };
 
   // ============================================================
@@ -279,7 +561,7 @@ function PredictAssessment({
       (question, index) =>
         index > currentIndex &&
         Number(scores[question.id] ?? 0) <
-          MASTERY_THRESHOLD
+        MASTERY_THRESHOLD
     );
   };
 
@@ -352,32 +634,41 @@ function PredictAssessment({
         const loadedScores =
           data.question_scores || {};
 
+        const loadedAttempts =
+          data.question_attempts &&
+            typeof data.question_attempts === "object"
+            ? data.question_attempts
+            : {};
+
+        setQuestionAttempts(
+          loadedAttempts
+        );
+
         // --------------------------------------------------------
         // BUILD COMPLETED IDS
         // --------------------------------------------------------
 
-        const backendCompletedIds =
-          new Set(
-            data.completed_question_ids || []
-          );
+        // --------------------------------------------------------
+        // BUILD COMPLETED IDS
+        //
+        // IMPORTANT:
+        // A Predict question is completed ONLY when it is mastered.
+        //
+        // Do NOT trust backend completed_question_ids here,
+        // because the backend may contain answered-but-wrong
+        // questions that should still be retested.
+        // --------------------------------------------------------
 
-        const scoreCompletedIds =
-          new Set(
-            predictQuestions
-              .filter(
-                (question) =>
-                  Number(
-                    loadedScores[question.id] ?? 0
-                  ) >= MASTERY_THRESHOLD
-              )
-              .map((question) => question.id)
-          );
-
-        const loadedCompletedIds =
-          new Set([
-            ...backendCompletedIds,
-            ...scoreCompletedIds,
-          ]);
+        const loadedCompletedIds = new Set(
+          predictQuestions
+            .filter(
+              (question) =>
+                Number(
+                  loadedScores[question.id] ?? 0
+                ) >= MASTERY_THRESHOLD
+            )
+            .map((question) => question.id)
+        );
 
         setCompletedIds(
           loadedCompletedIds
@@ -472,7 +763,7 @@ function PredictAssessment({
 
           setAdaptiveWeakness(
             predictWeaknesses[
-              weakestQuestion.id
+            weakestQuestion.id
             ] || {
               type: "general_predict",
               title:
@@ -622,12 +913,41 @@ function PredictAssessment({
 
     const score = isCorrect ? 100 : 0;
 
-    // Build the new scores BEFORE doing anything async.
-    const updatedScores = {
-      ...questionScores,
-      [question.id]: score,
+    // ----------------------------------------------------------
+    // ATTEMPT NUMBER
+    // ----------------------------------------------------------
+
+    const attemptNumber =
+      Number(
+        questionAttempts[
+        question.id
+        ] ?? 0
+      ) + 1;
+
+    const updatedAttempts = {
+      ...questionAttempts,
+      [question.id]: attemptNumber,
     };
 
+    setQuestionAttempts(
+      updatedAttempts
+    );
+
+    // Build the new scores BEFORE doing anything async.
+
+    // Keep the best score achieved for this question.
+    const previousScore = Number(
+      questionScores[question.id] ?? 0
+    );
+
+    const updatedScores = {
+      ...questionScores,
+      [question.id]: Math.max(
+        previousScore,
+        score
+      ),
+    };
+    setLatestSubmittedScores(updatedScores);
     const updatedPredictScore =
       calculatePredictScore(
         updatedScores
@@ -671,21 +991,64 @@ function PredictAssessment({
 
             student_answer:
               question.options[
-                selectedIndex
+              selectedIndex
               ],
 
             correct_answer:
               question.options[
-                correctIndex
+              correctIndex
               ],
+            attempt_number:
+              attemptNumber,
 
             mistake: isCorrect
               ? "none"
               : "prediction_error",
 
+            mistake_type:
+              isCorrect
+                ? "none"
+                : (
+                  predictWeaknesses?.[
+                    question.id
+                  ]?.type ||
+                  "prediction_error"
+                ),
+
+            weakness_type:
+              isCorrect
+                ? null
+                : (
+                  predictWeaknesses?.[
+                    question.id
+                  ]?.type ||
+                  "prediction_error"
+                ),
+
+            weakness_title:
+              isCorrect
+                ? null
+                : (
+                  predictWeaknesses?.[
+                    question.id
+                  ]?.title ||
+                  null
+                ),
+
+            weakness_description:
+              isCorrect
+                ? null
+                : (
+                  predictWeaknesses?.[
+                    question.id
+                  ]?.description ||
+                  null
+                ),
+
             recommendation: isCorrect
               ? "Continue to the next learning dimension."
               : "Review the code carefully and try the prediction again.",
+
           }),
         }
       );
@@ -709,6 +1072,95 @@ function PredictAssessment({
         "Predict attempt saved:",
         responseText
       );
+
+      // ========================================================
+      // TRACK MISTAKE HISTORY
+      //
+      // IMPORTANT:
+      // Only incorrect Predict answers are tracked.
+      // Correct answers do not create mistake records.
+      // ========================================================
+
+      if (!isCorrect) {
+        const weakness =
+          predictWeaknesses?.[
+          question.id
+          ] || {
+            type: "general_predict",
+
+            title:
+              "Strengthen your prediction skills",
+
+            description:
+              "Review the code carefully and predict what it will do before running it.",
+          };
+
+        const mistakeType =
+          weakness.type ||
+          "prediction_error";
+
+        console.log(
+          "PREDICT MISTAKE TRACKER PAYLOAD:",
+          {
+            studentId: student?.id,
+
+            questionId:
+              question?.id,
+
+            question:
+              question?.question,
+
+            selectedAnswer,
+
+            selectedAnswerText:
+              selectedAnswer !== null
+                ? question?.options?.[
+                Number(selectedAnswer)
+                ]
+                : null,
+
+            correctAnswer:
+              question?.correctAnswer,
+
+            correctAnswerText:
+              question?.options?.[
+              Number(
+                question?.correctAnswer
+              )
+              ],
+
+            score,
+
+            attemptNumber,
+
+            mistakeType,
+
+            weakness,
+
+            weaknessType:
+              weakness?.type ||
+              mistakeType,
+
+            isRetest,
+          }
+        );
+
+        await trackPredictMistake({
+          mistakeType,
+
+          score,
+
+          attemptNumber,
+
+          question,
+
+          weakness,
+
+          weaknessType:
+            weakness?.type ||
+            mistakeType,
+        });
+      }
 
       // ========================================================
       // 2. UPDATE LOCAL SCORES
@@ -736,20 +1188,25 @@ function PredictAssessment({
       // 3. MARK QUESTION COMPLETE
       // ========================================================
 
-      if (isCorrect) {
-        setCompletedIds(
-          (previous) => {
-            const updated =
-              new Set(previous);
+      // --------------------------------------------------------
+      // UPDATE COMPLETED IDS
+      //
+      // A question is completed only when its current/best
+      // score reaches the mastery threshold.
+      // --------------------------------------------------------
 
-            updated.add(
-              question.id
-            );
+      setCompletedIds((previous) => {
+        const updated = new Set(previous);
 
-            return updated;
-          }
-        );
-      }
+        if (
+          Number(updatedScores[question.id] ?? 0) >=
+          MASTERY_THRESHOLD
+        ) {
+          updated.add(question.id);
+        }
+
+        return updated;
+      });
 
       // ========================================================
       // 4. SHOW RESULT
@@ -795,7 +1252,7 @@ function PredictAssessment({
 
     const weakness =
       predictWeaknesses?.[
-        question.id
+      question.id
       ];
 
     console.log(
@@ -820,203 +1277,190 @@ function PredictAssessment({
   // CONTINUE TO NEXT QUESTION
   // ============================================================
 
-  const continueToNextQuestion =
-    async () => {
-      // ========================================================
-      // RETEST MODE
-      // ========================================================
+  const continueToNextQuestion = async (
+    latestScores = questionScores
+  ) => {
+    // ========================================================
+    // ALWAYS MAKE SURE THE CURRENT QUESTION IS INCLUDED
+    // ========================================================
 
-      if (isRetest) {
-        const nextWeakIndex =
-          findNextWeakQuestion(
-            questionScores,
-            questionIndex
-          );
+    const finalScores = {
+      ...latestScores,
+      [question.id]: Math.max(
+        Number(latestScores[question.id] ?? 0),
+        100
+      ),
+    };
 
-        if (nextWeakIndex !== -1) {
-          openQuestion(
-            nextWeakIndex
-          );
+    // Keep local state synchronized
+    setQuestionScores(finalScores);
 
-          return;
-        }
+    const finalPredictScore =
+      calculatePredictScore(finalScores);
 
-        // ------------------------------------------------------
-        // NO MORE WEAK QUESTIONS
-        // CHECK MASTERY
-        // ------------------------------------------------------
+    setPredictScore(finalPredictScore);
 
-        const currentScore =
-          calculatePredictScore(
-            questionScores
-          );
+    console.log("================================");
+    console.log("PREDICT CONTINUE");
+    console.log("QUESTION:", question.id);
+    console.log("SCORES:", finalScores);
+    console.log("PREDICT SCORE:", finalPredictScore);
+    console.log("RETEST:", isRetest);
+    console.log("================================");
 
-        setPredictScore(
-          currentScore
+    // ========================================================
+    // RETEST MODE
+    // ========================================================
+
+    if (isRetest) {
+      const nextWeakIndex =
+        findNextWeakQuestion(
+          finalScores,
+          questionIndex
         );
 
-        console.log(
-          "RETEST PREDICT SCORE:",
-          currentScore
-        );
-
-        if (
-          currentScore >=
-          MASTERY_THRESHOLD
-        ) {
-          console.log(
-            "RETEST MASTERED → UPDATING FINGERPRINT"
-          );
-
-          await completePredictAssessment(
-            questionScores
-          );
-
-          return;
-        }
-
-        // ------------------------------------------------------
-        // STILL NOT MASTERED
-        // START ANOTHER RECOVERY CYCLE
-        // ------------------------------------------------------
-
-        const weakestQuestion =
-          findWeakestQuestion(
-            questionScores
-          );
-
-        if (weakestQuestion) {
-          setAdaptiveWeakness(
-            predictWeaknesses[
-              weakestQuestion.id
-            ] || {
-              type: "general_predict",
-
-              title:
-                "Strengthen your prediction skills",
-
-              description:
-                "Review the code carefully and predict its behavior again.",
-            }
-          );
-        }
-
+      if (nextWeakIndex !== -1) {
+        openQuestion(nextWeakIndex);
         return;
       }
 
-      // ========================================================
-      // NORMAL MODE
-      // ========================================================
-
-      const nextIndex =
-        predictQuestions.findIndex(
-          (q, index) =>
-            index > questionIndex &&
-            !completedIds.has(q.id)
-        );
-
-      if (nextIndex !== -1) {
-        openQuestion(
-          nextIndex
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // CHECK ALL QUESTIONS
-      // ========================================================
-
-      const allCompleted =
-        predictQuestions.every(
-          (q) =>
-            completedIds.has(q.id)
-        );
-
-      if (!allCompleted) {
-        const firstIncompleteIndex =
-          predictQuestions.findIndex(
-            (q) =>
-              !completedIds.has(q.id)
-          );
-
-        if (
-          firstIncompleteIndex !== -1
-        ) {
-          openQuestion(
-            firstIncompleteIndex
-          );
-        }
-
-        return;
-      }
-
-      // ========================================================
-      // ALL QUESTIONS COMPLETE
-      // ========================================================
-
-      const overallScore =
-        calculatePredictScore(
-          questionScores
-        );
-
-      setPredictScore(
-        overallScore
-      );
-
-      console.log(
-        "FINAL PREDICT SCORE:",
-        overallScore
-      );
-
-      // ========================================================
-      // MASTERED
-      // ========================================================
+      // ------------------------------------------------------
+      // NO MORE WEAK QUESTIONS
+      // ------------------------------------------------------
 
       if (
-        overallScore >=
+        finalPredictScore >=
         MASTERY_THRESHOLD
       ) {
         console.log(
-          "PREDICT MASTERED → UPDATING FINGERPRINT"
+          "RETEST MASTERED → COMPLETE PREDICT"
         );
 
         await completePredictAssessment(
-          questionScores
+          finalScores
         );
 
         return;
       }
 
-      // ========================================================
-      // NOT MASTERED
-      // ========================================================
-
-      console.log(
-        "PREDICT NOT MASTERED → ADAPTIVE RECOVERY"
-      );
+      // ------------------------------------------------------
+      // STILL NOT MASTERED
+      // ------------------------------------------------------
 
       const weakestQuestion =
-        findWeakestQuestion(
-          questionScores
-        );
+        findWeakestQuestion(finalScores);
 
       if (weakestQuestion) {
         setAdaptiveWeakness(
           predictWeaknesses[
-            weakestQuestion.id
+          weakestQuestion.id
           ] || {
             type: "general_predict",
-
             title:
               "Strengthen your prediction skills",
-
             description:
               "Review the code carefully and predict its behavior again.",
           }
         );
       }
-    };
+
+      return;
+    }
+
+    // ========================================================
+    // NORMAL MODE
+    // ========================================================
+
+    const nextIndex =
+      predictQuestions.findIndex(
+        (q, index) =>
+          index > questionIndex &&
+          Number(
+            finalScores[q.id] ?? 0
+          ) < MASTERY_THRESHOLD
+      );
+
+    if (nextIndex !== -1) {
+      openQuestion(nextIndex);
+      return;
+    }
+
+    // ========================================================
+    // CHECK ALL QUESTIONS
+    // ========================================================
+
+    const allCompleted =
+      predictQuestions.every(
+        (q) =>
+          Number(
+            finalScores[q.id] ?? 0
+          ) >= MASTERY_THRESHOLD
+      );
+
+    if (!allCompleted) {
+      const firstIncompleteIndex =
+        predictQuestions.findIndex(
+          (q) =>
+            Number(
+              finalScores[q.id] ?? 0
+            ) < MASTERY_THRESHOLD
+        );
+
+      if (firstIncompleteIndex !== -1) {
+        openQuestion(firstIncompleteIndex);
+      }
+
+      return;
+    }
+
+    // ========================================================
+    // ALL QUESTIONS MASTERED
+    // ========================================================
+
+    console.log(
+      "ALL PREDICT QUESTIONS MASTERED"
+    );
+
+    if (
+      finalPredictScore >=
+      MASTERY_THRESHOLD
+    ) {
+      console.log(
+        "PREDICT MASTERED → UPDATING FINGERPRINT"
+      );
+
+      await completePredictAssessment(
+        finalScores
+      );
+
+      return;
+    }
+
+    // ========================================================
+    // NOT MASTERED → ADAPTIVE RECOVERY
+    // ========================================================
+
+    console.log(
+      "PREDICT NOT MASTERED → ADAPTIVE RECOVERY"
+    );
+
+    const weakestQuestion =
+      findWeakestQuestion(finalScores);
+
+    if (weakestQuestion) {
+      setAdaptiveWeakness(
+        predictWeaknesses[
+        weakestQuestion.id
+        ] || {
+          type: "general_predict",
+          title:
+            "Strengthen your prediction skills",
+          description:
+            "Review the code carefully and predict what it will do before running it.",
+        }
+      );
+    }
+  };
 
   // ============================================================
   // RECOVERY COMPLETE → START RETEST
@@ -1081,7 +1525,7 @@ function PredictAssessment({
         className="back-button"
         onClick={onBack}
       >
-        ← Back to explain
+        ← Back
       </button>
 
       {/* HEADER */}
@@ -1112,7 +1556,7 @@ function PredictAssessment({
 
         <span>
           {predictScore >=
-          MASTERY_THRESHOLD
+            MASTERY_THRESHOLD
             ? " ✓ Mastered"
             : ` — ${MASTERY_THRESHOLD}% needed to continue`}
         </span>
@@ -1237,7 +1681,7 @@ function PredictAssessment({
                 const isWrong =
                   result &&
                   result.correct ===
-                    false &&
+                  false &&
                   isSelected &&
                   !isCorrect;
 
@@ -1247,22 +1691,19 @@ function PredictAssessment({
                     key={`${question.id}-${index}`}
                     className={`
                       predict-option
-                      ${
-                        isSelected
-                          ? "selected"
-                          : ""
+                      ${isSelected
+                        ? "selected"
+                        : ""
                       }
-                      ${
-                        result &&
+                      ${result &&
                         result.correct &&
                         isCorrect
-                          ? "correct"
-                          : ""
+                        ? "correct"
+                        : ""
                       }
-                      ${
-                        isWrong
-                          ? "wrong"
-                          : ""
+                      ${isWrong
+                        ? "wrong"
+                        : ""
                       }
                     `}
                     onClick={() => {
@@ -1321,7 +1762,7 @@ function PredictAssessment({
               }
               disabled={
                 selectedAnswer ===
-                  null ||
+                null ||
                 saving
               }
             >
@@ -1425,20 +1866,21 @@ function PredictAssessment({
 
               {result.success &&
                 result.correct && (
+
                   <button
                     type="button"
                     className="primary-button"
-                    onClick={
-                      continueToNextQuestion
+                    onClick={() =>
+                      continueToNextQuestion(
+                        latestSubmittedScores || questionScores
+                      )
                     }
                   >
                     {isRetest
                       ? "Continue Retest →"
-                      : completedIds.size <
-                        predictQuestions.length
-                        ? "Continue →"
-                        : "Check Predict Mastery →"}
+                      : "Continue →"}
                   </button>
+
                 )}
 
             </div>

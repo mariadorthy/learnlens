@@ -36,24 +36,24 @@ function ApplyAISection({
   // ============================================================
 
   if (showAdaptiveChallenge) {
-  return (
-    <AdaptiveChallenge
-      weakness={
-        analysis?.weakness || "general_implementation"
-      }
-      question={question}
-      onBack={() => setShowAdaptiveChallenge(false)}
-      onComplete={(challengeResult) => {
-        console.log(
-          "Adaptive challenge completed:",
-          challengeResult
-        );
+    return (
+      <AdaptiveChallenge
+        weakness={
+          analysis?.weakness || "general_implementation"
+        }
+        question={question}
+        onBack={() => setShowAdaptiveChallenge(false)}
+        onComplete={(challengeResult) => {
+          console.log(
+            "Adaptive challenge completed:",
+            challengeResult
+          );
 
-        setShowAdaptiveChallenge(false);
-      }}
-    />
-  );
-}
+          setShowAdaptiveChallenge(false);
+        }}
+      />
+    );
+  }
   // ============================================================
   // AI MISTAKE ANALYSIS
   // ============================================================

@@ -1,8 +1,17 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import DebugAISection from "../components/DebugAISection";
 import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigator";
 import { detectWeakness } from "../services/weaknessDetector";
+
+import {
+  saveMistakeHistory,
+} from "../utils/mistakeTracker";
 
 function DebugAssessment({
   concept,
@@ -19,16 +28,347 @@ function DebugAssessment({
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
 
-  const [completedIds, setCompletedIds] = useState(new Set());
   const [questionScores, setQuestionScores] = useState({});
+  const [questionAttempts, setQuestionAttempts] = useState({});
+
+  const [retestMode, setRetestMode] = useState(false);
+  const [retestQuestionId, setRetestQuestionId] =
+    useState(null);
+  const [retestCompleted, setRetestCompleted] =
+    useState(false);
+
 
   const [showHint, setShowHint] = useState(false);
   const [mistakeAnalysis, setMistakeAnalysis] = useState(null);
   const [showAdaptiveChallenge, setShowAdaptiveChallenge] =
     useState(false);
 
+  const MASTERY_THRESHOLD = 80;
+
   const debugQuestions = concept?.debugQuestions || [];
   const API_URL = import.meta.env.VITE_API_URL;
+
+  const completedIds = useMemo(() => {
+    return new Set(
+      debugQuestions
+        .filter(
+          (question) =>
+            Number(
+              questionScores[question.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        )
+        .map((question) => question.id)
+    );
+  }, [debugQuestions, questionScores]);
+
+  // ============================================================
+  // DEBUG SCORE
+  // ============================================================
+
+  const calculateDebugScore = useCallback(
+    (scores) => {
+      if (!debugQuestions.length) {
+        return 0;
+      }
+
+      const allAnswered =
+        debugQuestions.every(
+          (item) =>
+            scores[item.id] !== undefined
+        );
+
+      if (!allAnswered) {
+        return 0;
+      }
+
+      const totalScore =
+        debugQuestions.reduce(
+          (sum, item) =>
+            sum +
+            Number(
+              scores[item.id] ?? 0
+            ),
+          0
+        );
+
+      return Math.round(
+        totalScore /
+        debugQuestions.length
+      );
+    },
+    [debugQuestions]
+  );
+
+  const debugScore = useMemo(
+    () =>
+      calculateDebugScore(
+        questionScores
+      ),
+    [
+      calculateDebugScore,
+      questionScores,
+    ]
+  );
+
+  // ============================================================
+  // DEBUG DIMENSION RESULT
+  // ============================================================
+
+  const calculateDimensionResult =
+    useCallback(
+      (scores) => {
+        const total =
+          debugQuestions.length;
+
+        if (!total) {
+          return {
+            correct: 0,
+            total: 0,
+            score: 0,
+            attempted: 0,
+          };
+        }
+
+        const attempted =
+          debugQuestions.filter(
+            (item) =>
+              scores[item.id] !==
+              undefined
+          );
+
+        const correct =
+          debugQuestions.filter(
+            (item) =>
+              Number(
+                scores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          ).length;
+
+        const score = Math.round(
+          (correct / total) * 100
+        );
+
+        return {
+          correct,
+          total,
+          score,
+          attempted:
+            attempted.length,
+        };
+      },
+      [debugQuestions]
+    );
+
+  // ============================================================
+  // KNOWLEDGE FINGERPRINT
+  // ============================================================
+
+  const buildKnowledgeFingerprint =
+    useCallback(
+      (dimensionResult) => {
+        return {
+          debug: {
+            score: Number(
+              dimensionResult.score ?? 0
+            ),
+
+            correct: Number(
+              dimensionResult.correct ?? 0
+            ),
+
+            total: Number(
+              dimensionResult.total ?? 0
+            ),
+          },
+
+          updated_dimension:
+            "debug",
+
+          updated_at:
+            new Date().toISOString(),
+        };
+      },
+      []
+    );
+
+  // ============================================================
+  // UPDATE KNOWLEDGE FINGERPRINT
+  // ============================================================
+
+  const updateKnowledgeFingerprint =
+    useCallback(
+      async (dimensionResult) => {
+        const fingerprint =
+          buildKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/knowledge-fingerprint`,
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify({
+                  student_id:
+                    String(student.id),
+
+                  concept:
+                    concept.id,
+
+                  dimension:
+                    "debug",
+
+                  fingerprint,
+
+                  dimension_score:
+                    Number(
+                      dimensionResult.score ??
+                      0
+                    ),
+
+                  dimension_correct:
+                    Number(
+                      dimensionResult.correct ??
+                      0
+                    ),
+
+                  dimension_total:
+                    Number(
+                      dimensionResult.total ??
+                      0
+                    ),
+                }),
+              }
+            );
+
+          if (!response.ok) {
+            console.warn(
+              "Debug fingerprint endpoint returned:",
+              response.status
+            );
+
+            return false;
+          }
+
+          return true;
+        } catch (error) {
+          console.warn(
+            "Debug fingerprint update failed:",
+            error
+          );
+
+          return false;
+        }
+      },
+      [
+        API_URL,
+        student?.id,
+        concept?.id,
+        buildKnowledgeFingerprint,
+      ]
+    );
+
+  // ============================================================
+  // COMPLETE DEBUG ASSESSMENT
+  // ============================================================
+
+  const completeDebugAssessment =
+    useCallback(
+      async (scores) => {
+        const allMastered =
+          debugQuestions.length > 0 &&
+          debugQuestions.every(
+            (item) =>
+              Number(
+                scores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          );
+
+        if (!allMastered) {
+          return;
+        }
+
+        const dimensionResult =
+          calculateDimensionResult(
+            scores
+          );
+
+        const fingerprintSaved =
+          await updateKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        if (!fingerprintSaved) {
+          console.warn(
+            "Debug fingerprint could not be saved."
+          );
+        }
+
+        onComplete({
+          dimension: "debug",
+
+          correct:
+            dimensionResult.correct,
+
+          total:
+            dimensionResult.total,
+
+          score:
+            dimensionResult.score,
+
+          fingerprint:
+            buildKnowledgeFingerprint(
+              dimensionResult
+            ),
+        });
+      },
+      [
+        debugQuestions,
+        calculateDimensionResult,
+        updateKnowledgeFingerprint,
+        onComplete,
+        buildKnowledgeFingerprint,
+      ]
+    );
+
+  // ============================================================
+  // UPDATE QUESTION SCORE
+  // ============================================================
+
+  const updateQuestionScore = useCallback(
+    (questionId, score) => {
+      setQuestionScores(
+        (previous) => {
+          const previousScore =
+            Number(
+              previous[questionId] ?? 0
+            );
+
+          const bestScore =
+            Math.max(
+              previousScore,
+              Number(score ?? 0)
+            );
+
+          return {
+            ...previous,
+            [questionId]:
+              bestScore,
+          };
+        }
+      );
+    },
+    []
+  );
 
   // ============================================================
   // QUESTION SELECT
@@ -48,6 +388,9 @@ function DebugAssessment({
     setMistakeAnalysis(null);
     setShowAdaptiveChallenge(false);
     setShowHint(false);
+    setRetestMode(false);
+    setRetestQuestionId(null);
+    setRetestCompleted(false);
   };
 
   // ============================================================
@@ -60,6 +403,13 @@ function DebugAssessment({
       return;
     }
 
+    if (debugQuestions.length === 0) {
+      setLoadingProgress(false);
+      return;
+    }
+
+    let cancelled = false;
+
     const loadProgress = async () => {
       try {
         setLoadingProgress(true);
@@ -69,59 +419,88 @@ function DebugAssessment({
         );
 
         if (!response.ok) {
-          throw new Error("Failed to load debug progress");
+          throw new Error(
+            "Failed to load debug progress"
+          );
         }
 
         const data = await response.json();
 
-        console.log("DEBUG PROGRESS:", data);
+        if (cancelled) {
+          return;
+        }
 
-        // --------------------------------------------------------
-        // Completed question IDs
-        // --------------------------------------------------------
-
-        const loadedCompletedIds = new Set(
-          data.completed_question_ids || []
+        console.log(
+          "DEBUG PROGRESS:",
+          data
         );
 
-        setCompletedIds(loadedCompletedIds);
-
         // --------------------------------------------------------
-        // Question scores
+        // QUESTION SCORES
         // --------------------------------------------------------
 
-        const loadedScores = {};
-
-        if (data.question_scores) {
-          Object.entries(data.question_scores).forEach(
-            ([questionId, score]) => {
-              loadedScores[questionId] = score;
-            }
-          );
-        }
+        const loadedScores =
+          data.question_scores || {};
 
         setQuestionScores(loadedScores);
 
         // --------------------------------------------------------
-        // Find first incomplete question
+        // QUESTION SCORES ARE THE SOURCE OF TRUTH
         // --------------------------------------------------------
+        //
+        // Do NOT trust backend
+        // completed_question_ids.
+        //
+        // A question is mastered only when
+        // its saved best score is >= 80.
+        //
 
-        const nextIndex = debugQuestions.findIndex(
-          (question) => !loadedCompletedIds.has(question.id)
-        );
+        const nextIndex =
+          debugQuestions.findIndex(
+            (item) =>
+              Number(
+                loadedScores[item.id] ?? 0
+              ) <
+              MASTERY_THRESHOLD
+          );
 
         if (nextIndex !== -1) {
-          setQuestionIndex(nextIndex);
+          setQuestionIndex(
+            nextIndex
+          );
 
           setCode(
-            debugQuestions[nextIndex].starterCode || ""
-          );
-        } else {
-          console.log(
-            "ALL DEBUG QUESTIONS ALREADY COMPLETED → MOVING ON"
+            debugQuestions[nextIndex]
+              .starterCode || ""
           );
 
-          onComplete();
+          return;
+        }
+
+        // --------------------------------------------------------
+        // EVERYTHING MASTERED
+        // --------------------------------------------------------
+
+        const allMastered =
+          debugQuestions.length > 0 &&
+          debugQuestions.every(
+            (item) =>
+              Number(
+                loadedScores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          );
+
+        if (allMastered) {
+          console.log(
+            "ALL DEBUG QUESTIONS MASTERED → COMPLETE"
+          );
+
+          await completeDebugAssessment(
+            loadedScores
+          );
+
+          return;
         }
       } catch (error) {
         console.error(
@@ -129,25 +508,31 @@ function DebugAssessment({
           error
         );
 
-        // Allow student to continue even if progress loading fails.
         setQuestionIndex(0);
 
-        if (debugQuestions?.[0]) {
+        if (debugQuestions[0]) {
           setCode(
-            debugQuestions[0].starterCode || ""
+            debugQuestions[0]
+              .starterCode || ""
           );
         }
       } finally {
-        setLoadingProgress(false);
+        if (!cancelled) {
+          setLoadingProgress(false);
+        }
       }
     };
 
     loadProgress();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     student?.id,
     concept?.id,
     API_URL,
-    onComplete,
+    debugQuestions,
   ]);
 
   // ============================================================
@@ -421,8 +806,9 @@ function DebugAssessment({
   const runMistakeAnalysis = async ({
     mistakeType,
     errorMessage,
-    score = 40,
+    score = 0,
   }) => {
+
     const fallbackWeakness = detectWeakness({
       code: currentCode,
       question: question.description,
@@ -475,8 +861,8 @@ function DebugAssessment({
       if (!analysisResponse.ok) {
         throw new Error(
           analysisData.detail ||
-            analysisData.message ||
-            "AI analysis request failed."
+          analysisData.message ||
+          "AI analysis request failed."
         );
       }
 
@@ -552,10 +938,126 @@ function DebugAssessment({
   };
 
   // ============================================================
+  // TRACK DEBUG MISTAKE
+  // ============================================================
+
+  const trackDebugMistake = async ({
+    mistakeType,
+    score,
+    attemptNumber,
+    errorMessage = "",
+    misconception = "",
+    recommendation = "",
+    weakness = "",
+    weaknessType = "",
+    actualOutput = "",
+    studentAnswer = "",
+  }) => {
+    return saveMistakeHistory({
+      API_URL,
+
+      studentId: student?.id,
+
+      topic: concept?.id,
+      concept: concept?.id,
+      dimension: "debug",
+
+      questionId: question?.id,
+      questionType: "code",
+      questionFormat: "coding",
+      question:
+        question?.description ||
+        question?.question ||
+        question?.title ||
+        "",
+
+      score: score ?? 0,
+      maxScore: 100,
+      attemptNumber,
+
+      studentAnswer:
+        studentAnswer ||
+        currentCode ||
+        "",
+
+      correctAnswer:
+        question?.expectedOutput ||
+        question?.correctAnswer ||
+        question?.correctCode ||
+        "",
+
+      mistakeType,
+
+      mistake:
+        errorMessage ||
+        mistakeType ||
+        "Debugging mistake",
+
+      weakness:
+        weakness ||
+        mistakeAnalysis?.weakness ||
+        null,
+
+      weaknessType:
+        weaknessType ||
+        mistakeAnalysis?.weakness ||
+        null,
+
+      misconception:
+        misconception ||
+        mistakeAnalysis?.misconception ||
+        null,
+
+      whatHappened:
+        errorMessage ||
+        mistakeAnalysis?.explanation ||
+        null,
+
+      recommendation:
+        recommendation ||
+        mistakeAnalysis?.recommended_action ||
+        null,
+
+      code: currentCode || "",
+      errorMessage,
+
+      expectedOutput:
+        question?.expectedOutput ||
+        "",
+
+      actualOutput:
+        actualOutput ||
+        output ||
+        "",
+
+      retestMode: Boolean(retestMode),
+      isRetest: Boolean(retestMode),
+
+      metadata: {
+        question_title:
+          question?.title || null,
+
+        adaptive:
+          question?.adaptive || null,
+      },
+    });
+  };
+
+  // ============================================================
   // RUN CODE
   // ============================================================
 
   const runCode = async () => {
+    const attemptNumber =
+      Number(
+        questionAttempts[question.id] ?? 0
+      ) + 1;
+
+    setQuestionAttempts((previous) => ({
+      ...previous,
+      [question.id]: attemptNumber,
+    }));
+
     setResult(null);
     setMistakeAnalysis(null);
     setOutput("");
@@ -568,14 +1070,23 @@ function DebugAssessment({
       // --------------------------------------------------------
 
       if (!currentCode.trim()) {
+        const errorMessage =
+          "Please write or fix the code before running it.";
+
         setOutput("No code to run.");
 
         setResult({
           success: false,
           score: 0,
           mistakeType: "no_code",
-          message:
-            "Please write or fix the code before running it.",
+          message: errorMessage,
+        });
+
+        await trackDebugMistake({
+          mistakeType: "no_code",
+          score: 0,
+          attemptNumber,
+          errorMessage,
         });
 
         return;
@@ -610,8 +1121,8 @@ function DebugAssessment({
       if (!response.ok) {
         throw new Error(
           data.message ||
-            data.error ||
-            "Failed to run the code."
+          data.error ||
+          "Failed to run the code."
         );
       }
 
@@ -637,9 +1148,11 @@ function DebugAssessment({
           ? "Your program has a Python syntax error. Check your brackets, indentation, quotes, and make sure statements such as for, if, and while end with a colon (:)."
           : "Your program could not run. Check the error shown in the terminal and fix the code.";
 
+        const score = 0;
+
         setResult({
           success: false,
-          score: 40,
+          score,
           mistakeType,
           message: errorMessage,
         });
@@ -647,11 +1160,19 @@ function DebugAssessment({
         await runMistakeAnalysis({
           mistakeType,
           errorMessage,
+          score,
+        });
+
+        await trackDebugMistake({
+          mistakeType,
           score: 40,
+          attemptNumber,
+          errorMessage,
         });
 
         return;
       }
+
 
       // --------------------------------------------------------
       // OUTPUT COMPARISON
@@ -713,27 +1234,51 @@ function DebugAssessment({
       const errorMessage =
         getDebugErrorMessage();
 
+      const score = 0;
+
+      const mistakeType =
+        question.bugType ||
+        "logic_error";
+
       setResult({
         success: false,
-        score: 40,
-        mistakeType:
-          question.bugType ||
-          "logic_error",
+        score,
+        mistakeType,
         message: errorMessage,
       });
 
       await runMistakeAnalysis({
-        mistakeType:
-          question.bugType ||
-          "logic_error",
+        mistakeType,
         errorMessage,
-        score: 40,
+        score,
       });
+
+      await trackDebugMistake({
+        mistakeType,
+        score: 40,
+        attemptNumber,
+        errorMessage,
+        weakness: getAdaptiveWeakness({
+          mistakeType,
+          questionId: question.id,
+          aiWeakness: question.bugType,
+        }),
+        weaknessType: getAdaptiveWeakness({
+          mistakeType,
+          questionId: question.id,
+          aiWeakness: question.bugType,
+        }),
+        actualOutput,
+      });
+
     } catch (error) {
       console.error(
         "Run debug code error:",
         error
       );
+
+      const errorMessage =
+        "Could not process the attempt. Please try again.";
 
       setOutput(
         "Could not run the code.\nPlease check that the backend is running."
@@ -746,7 +1291,15 @@ function DebugAssessment({
         message:
           "Could not run the code. Make sure the backend is running and the /run-code endpoint is available.",
       });
+
+      await trackDebugMistake({
+        mistakeType: "backend_error",
+        score: 0,
+        attemptNumber,
+        errorMessage,
+      });
     } finally {
+
       setAiLoading(false);
     }
   };
@@ -790,27 +1343,82 @@ function DebugAssessment({
 
     try {
       // --------------------------------------------------------
-      // Save attempt
+      // SAVE CURRENT ATTEMPT
       // --------------------------------------------------------
 
       const response = await fetch(
         `${API_URL}/attempts`,
         {
           method: "POST",
+
           headers: {
-            "Content-Type": "application/json",
+            "Content-Type":
+              "application/json",
           },
+
           body: JSON.stringify({
-            student_id: String(student.id),
-            concept: concept.id,
-            dimension: "debug",
-            question_id: question.id,
-            score: result.score,
-            question: question.description,
-            student_answer: currentCode,
+            student_id:
+              String(student.id),
+
+            concept:
+              concept.id,
+
+            dimension:
+              "debug",
+
+            question_id:
+              question.id,
+
+            score:
+              Number(result.score ?? 0),
+
+            question:
+              question.description,
+
+            student_answer:
+              currentCode,
+
             correct_answer:
-              question.expectedOutput,
-            mistake: "none",
+              question.expectedOutput ||
+              "",
+
+            mistake:
+              "none",
+
+            mistake_type:
+              "debugging_success",
+
+            recommendation:
+              "Debugging successfully demonstrated.",
+
+            weakness:
+              normalizeWeakness(
+                mistakeAnalysis?.weakness ||
+                question.bugType ||
+                "general_debugging"
+              ),
+
+            weakness_type:
+              normalizeWeakness(
+                mistakeAnalysis?.weakness ||
+                question.bugType ||
+                "general_debugging"
+              ),
+
+            knowledge_fingerprint: {
+              debug: {
+                score:
+                  Number(
+                    result.score ?? 0
+                  ),
+              },
+            },
+
+            retest_mode:
+              retestMode,
+
+            is_retest:
+              retestMode,
           }),
         }
       );
@@ -833,38 +1441,86 @@ function DebugAssessment({
       await response.json();
 
       // --------------------------------------------------------
-      // Update completed questions
+      // CALCULATE BEST SCORE
       // --------------------------------------------------------
 
-      const updatedCompletedIds =
-        new Set(completedIds);
-
-      updatedCompletedIds.add(question.id);
-
-      setCompletedIds(
-        updatedCompletedIds
-      );
-
-      setQuestionScores((previous) => ({
-        ...previous,
-        [question.id]: result.score,
-      }));
-
-      // --------------------------------------------------------
-      // Find next incomplete question
-      // --------------------------------------------------------
-
-      const nextIndex =
-        debugQuestions.findIndex(
-          (q) => !updatedCompletedIds.has(q.id)
+      const previousScore =
+        Number(
+          questionScores[
+          question.id
+          ] ?? 0
         );
 
-      if (nextIndex !== -1) {
-        setQuestionIndex(nextIndex);
+      const updatedScore =
+        Math.max(
+          previousScore,
+          Number(
+            result.score ?? 0
+          )
+        );
+
+      // --------------------------------------------------------
+      // IMPORTANT:
+      // Build the latest score object synchronously.
+      //
+      // Do NOT wait for React state to update.
+      // --------------------------------------------------------
+
+      const updatedScores = {
+        ...questionScores,
+
+        [question.id]:
+          updatedScore,
+      };
+
+      // --------------------------------------------------------
+      // UPDATE SCORES
+      // --------------------------------------------------------
+
+      setQuestionScores(updatedScores);
+
+      // --------------------------------------------------------
+      // RETEST SUCCESS
+      // --------------------------------------------------------
+
+      if (
+        retestMode &&
+        retestQuestionId === question.id
+      ) {
+        setRetestCompleted(true);
+        setRetestMode(false);
+        setRetestQuestionId(null);
+      }
+
+      // --------------------------------------------------------
+      // FIND NEXT UNMASTERED QUESTION
+      // --------------------------------------------------------
+
+      const nextQuestion = debugQuestions
+        .map((item, index) => ({
+          item,
+          index,
+          score: Number(
+            updatedScores[item.id] ?? 0
+          ),
+        }))
+        .filter(
+          ({ score }) =>
+            score < MASTERY_THRESHOLD
+        )
+        .sort(
+          (a, b) => a.score - b.score
+        )[0];
+
+      // --------------------------------------------------------
+      // CONTINUE TO NEXT UNMASTERED
+      // --------------------------------------------------------
+
+      if (nextQuestion) {
+        setQuestionIndex(nextQuestion.index);
 
         setCode(
-          debugQuestions[nextIndex]
-            .starterCode || ""
+          nextQuestion.item.starterCode || ""
         );
 
         setOutput("");
@@ -877,14 +1533,86 @@ function DebugAssessment({
       }
 
       // --------------------------------------------------------
-      // ALL QUESTIONS COMPLETE
+      // ALL QUESTIONS MASTERED
       // --------------------------------------------------------
 
-      console.log(
-        "ALL DEBUG QUESTIONS COMPLETE → MOVING ON"
-      );
+      const allMastered =
+        debugQuestions.length > 0 &&
+        debugQuestions.every(
+          (item) =>
+            Number(
+              updatedScores[item.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        );
 
-      onComplete();
+      if (allMastered) {
+        console.log(
+          "ALL DEBUG QUESTIONS MASTERED"
+        );
+
+        await completeDebugAssessment(
+          updatedScores
+        );
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // FINAL RECOVERY FALLBACK
+      // --------------------------------------------------------
+
+      const weakestQuestion =
+        debugQuestions
+          .map(
+            (item, index) => ({
+              item,
+              index,
+
+              score:
+                Number(
+                  updatedScores[
+                  item.id
+                  ] ?? 0
+                ),
+            })
+          )
+          .filter(
+            ({ score }) =>
+              score <
+              MASTERY_THRESHOLD
+          )
+          .sort(
+            (a, b) =>
+              a.score -
+              b.score
+          )[0];
+
+      if (weakestQuestion) {
+        setQuestionIndex(
+          weakestQuestion.index
+        );
+
+        setCode(
+          weakestQuestion.item
+            .starterCode || ""
+        );
+
+        setOutput("");
+        setResult(null);
+        setMistakeAnalysis(null);
+        setShowAdaptiveChallenge(false);
+        setShowHint(false);
+
+        setRetestMode(true);
+
+        setRetestQuestionId(
+          weakestQuestion.item.id
+        );
+
+        setRetestCompleted(false);
+
+        return;
+      }
     } catch (error) {
       console.error(
         "Submit debug error:",
@@ -894,7 +1622,9 @@ function DebugAssessment({
       setResult({
         success: false,
         score: 0,
-        mistakeType: "backend_error",
+        mistakeType:
+          "backend_error",
+
         message:
           "Could not save the debugging attempt. Make sure the backend is running.",
       });
@@ -914,14 +1644,19 @@ function DebugAssessment({
 
     setOutput("");
     setResult(null);
+
     setMistakeAnalysis(null);
     setShowAdaptiveChallenge(false);
     setShowHint(false);
+
+    setRetestMode(false);
+    setRetestQuestionId(null);
+    setRetestCompleted(false);
   };
 
   // ============================================================
   // CODE CHANGE
-  // ============================================================
+
 
   const handleCodeChange = (event) => {
     setCode(event.target.value);
@@ -970,6 +1705,24 @@ function DebugAssessment({
           problem, fix the code, and run it
           to check your result.
         </p>
+
+        <div
+          style={{
+            marginTop: "12px",
+            fontSize: "14px",
+            color: "#64748b",
+          }}
+        >
+          Debug Score:{" "}
+          <strong>
+            {debugScore}%
+          </strong>
+          {" "}
+          / mastery threshold{" "}
+          <strong>
+            {MASTERY_THRESHOLD}%
+          </strong>
+        </div>
       </div>
 
       {/* NAVIGATOR */}
@@ -1008,6 +1761,18 @@ function DebugAssessment({
           {question.difficulty && (
             <span className="debug-difficulty">
               {question.difficulty}
+            </span>
+          )}
+
+          {retestMode && (
+            <span
+              className="debug-difficulty"
+              style={{
+                background: "#fef3c7",
+                color: "#92400e",
+              }}
+            >
+              Targeted Retest
             </span>
           )}
 
@@ -1174,8 +1939,8 @@ function DebugAssessment({
               ? "Saving..."
               : questionIndex <
                 debugQuestions.length - 1
-              ? "Submit & Continue →"
-              : "Submit Debug →"}
+                ? "Submit & Continue →"
+                : "Submit Debug →"}
           </button>
 
         </div>

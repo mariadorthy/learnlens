@@ -72,7 +72,11 @@ DIMENSIONS = [
     "debug",
     "apply",
 ]
-
+SUPPORTED_QUESTION_TYPES = [
+    "mcq",
+    "qna",
+    "code"
+]
 
 # ============================================================
 # ROOT
@@ -84,6 +88,86 @@ def root():
         "message": "LearnLens API is running"
     }
 
+# ============================================================
+# MISTAKE HISTORY
+# ============================================================
+
+def record_mistake(
+    student_id: str,
+    concept: str,
+    dimension: str,
+    question_type: str,
+    question_id: str = None,
+    mistake_type: str = None,
+    mistake_detail: str = None,
+    db: Session = None,
+):
+    """
+    Common mistake recorder.
+
+    Used by:
+        MCQ
+        Q&A
+        Code
+
+    Used across:
+        recall
+        explain
+        predict
+        implement
+        debug
+        apply
+    """
+
+    existing = (
+        db.query(models.MistakeHistory)
+        .filter(
+            models.MistakeHistory.student_id == str(student_id),
+            models.MistakeHistory.concept == str(concept),
+            models.MistakeHistory.dimension == str(dimension),
+            models.MistakeHistory.question_type == str(question_type),
+            models.MistakeHistory.question_id == question_id,
+            models.MistakeHistory.mistake_type == mistake_type,
+        )
+        .first()
+    )
+
+    # --------------------------------------------------------
+    # SAME MISTAKE ALREADY EXISTS
+    # --------------------------------------------------------
+
+    if existing:
+
+        existing.count += 1
+
+        if mistake_detail:
+            existing.mistake_detail = mistake_detail
+
+        db.commit()
+        db.refresh(existing)
+
+        return existing
+
+    # --------------------------------------------------------
+    # NEW MISTAKE
+    # --------------------------------------------------------
+
+    new_mistake = models.MistakeHistory(
+        student_id=str(student_id),
+        concept=str(concept),
+        dimension=str(dimension),
+        question_type=str(question_type),
+        question_id=question_id,
+        mistake_type=mistake_type,
+        mistake_detail=mistake_detail,
+        count=1,
+    )
+
+    db.add(new_mistake)
+    db.commit()
+    db.refresh(new_mistake)
+
+    return new_mistake
 
 # ============================================================
 # VALIDATION HELPERS
@@ -144,10 +228,12 @@ def require_dimension(attempt: dict):
 # ============================================================
 
 def calculate_knowledge_fingerprint(
-    student_id: str,
-    concept: str,
-    db: Session
+    student_id,
+    concept,
+    db
 ):
+    REQUIRED_QUESTIONS = 6
+
     attempts = (
         db.query(models.LearningAttempt)
         .filter(
@@ -156,13 +242,21 @@ def calculate_knowledge_fingerprint(
         .filter(
             models.LearningAttempt.concept == concept
         )
-        .order_by(
-            models.LearningAttempt.id.asc()
-        )
         .all()
     )
 
-    fingerprint = {}
+    fingerprint = {
+        dimension: {
+            "score": 0,
+            "correct": 0,
+            "total": 0,
+            "answered_count": 0,
+            "completed_count": 0,
+            "mastered_count": 0,
+            "question_count": REQUIRED_QUESTIONS,
+        }
+        for dimension in DIMENSIONS
+    }
 
     for dimension in DIMENSIONS:
 
@@ -172,100 +266,110 @@ def calculate_knowledge_fingerprint(
             if attempt.dimension == dimension
         ]
 
-        if not dimension_attempts:
-            fingerprint[dimension] = {
-                "score": None,
-                "status": "not_attempted",
-                "attempts": 0,
-                "completed": 0,
-                "total": 0,
-            }
-            continue
-
-        # -----------------------------------------------------
+        # ----------------------------------------------------
         # BEST SCORE FOR EACH QUESTION
-        # -----------------------------------------------------
+        # ----------------------------------------------------
 
-        best_by_question = {}
+        best_scores = {}
 
         for attempt in dimension_attempts:
 
-            question_id = (
-                str(attempt.question_id)
-                if attempt.question_id
-                else f"attempt_{attempt.id}"
-            )
+            if not attempt.question_id:
+                continue
+
+            question_id = str(attempt.question_id)
 
             score = (
                 float(attempt.score)
                 if attempt.score is not None
-                else None
+                else 0
             )
 
-            if score is None:
-                continue
+            previous = best_scores.get(question_id)
 
-            current_best = best_by_question.get(
-                question_id
-            )
+            if previous is None or score > previous:
+                best_scores[question_id] = score
 
-            if (
-                current_best is None
-                or score > current_best
-            ):
-                best_by_question[question_id] = score
+       # ----------------------------------------------------
+        # HOW MANY UNIQUE QUESTIONS WERE ANSWERED?
+        # ----------------------------------------------------
 
-        # -----------------------------------------------------
-        # NO SCORES
-        # -----------------------------------------------------
-
-        if not best_by_question:
-            fingerprint[dimension] = {
-                "score": None,
-                "status": "not_attempted",
-                "attempts": 0,
-                "completed": 0,
-                "total": 0,
-            }
-            continue
-
-        # -----------------------------------------------------
-        # DIMENSION SCORE
-        # -----------------------------------------------------
-
-        scores = list(best_by_question.values())
-
-        average_score = (
-            sum(scores) / len(scores)
+        answered_count = min(
+            len(best_scores),
+            REQUIRED_QUESTIONS
         )
 
-        # -----------------------------------------------------
-        # MASTERY
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # CORRECT / MASTERED QUESTIONS
+        #
+        # A question is mastered only when its BEST score
+        # reaches the mastery threshold.
+        # ----------------------------------------------------
 
-        completed = sum(
-            1
-            for score in scores
-            if score >= 80
+        mastered_count = min(
+            sum(
+                1
+                for score in best_scores.values()
+                if score >= 80
+            ),
+            REQUIRED_QUESTIONS
         )
 
-        total = len(scores)
+        # ----------------------------------------------------
+        # COMPLETED PROGRESS
+        #
+        # IMPORTANT:
+        # "completed" means MASTERED here.
+        #
+        # Answered-but-wrong questions are NOT completed.
+        # ----------------------------------------------------
 
-        if average_score >= 80:
-            status = "strong"
+        completed_count = mastered_count
 
-        elif average_score >= 50:
-            status = "moderate"
+        # ----------------------------------------------------
+        # COMPLETED PROGRESS
+        #
+        # IMPORTANT:
+        # "completed" means MASTERED here.
+        #
+        # Answered-but-wrong questions are NOT completed.
+        # ----------------------------------------------------
 
-        else:
-            status = "weak"
+        completed_count = mastered_count
+
+        # ----------------------------------------------------
+        # PROGRESS SCORE
+        #
+        # 1 / 6 = 16.67 -> 17
+        # 2 / 6 = 33.33 -> 33
+        # etc.
+        # ----------------------------------------------------
+
+        progress_score = round(
+            completed_count / REQUIRED_QUESTIONS * 100
+        )
 
         fingerprint[dimension] = {
-            "score": round(average_score),
-            "status": status,
-            "attempts": total,
-            "completed": completed,
-            "total": total,
+
+            # IMPORTANT:
+            # This is now PROGRESS, not average answer score.
+            "score": progress_score,
+
+            "correct": mastered_count,
+
+            # Fixed denominator
+            "total": REQUIRED_QUESTIONS,
+
+            # Number actually answered
+            "answered_count": answered_count,
+
+            # Number completed out of the required 6
+            "completed_count": completed_count,
+
+            "mastered_count": mastered_count,
+
+            # Always 6
+            "question_count": REQUIRED_QUESTIONS,
         }
 
     return fingerprint
@@ -295,7 +399,7 @@ def choose_next_dimension(
     unattempted = [
         dimension
         for dimension, data in fingerprint.items()
-        if data["attempts"] == 0
+        if data["question_count"] == 0
     ]
 
     if unattempted:
@@ -342,7 +446,6 @@ def choose_next_dimension(
     # --------------------------------------------------------
 
     if weakest_score < 50:
-
         return {
             "dimension": weakest_dimension,
             "reason": "weakest_dimension",
@@ -356,7 +459,6 @@ def choose_next_dimension(
     # --------------------------------------------------------
 
     if weakest_score < 80:
-
         return {
             "dimension": weakest_dimension,
             "reason": "needs_practice",
@@ -376,7 +478,6 @@ def choose_next_dimension(
         "score": weakest_score,
         "recent_average": recent_average
     }
-
 
 # ============================================================
 # GENERATE ADAPTIVE RECOMMENDATION
@@ -869,6 +970,14 @@ def create_attempt(
     score = float(
         attempt.get("score", 0)
     )
+    print("QUESTION SCORES RECEIVED:")
+    print(attempt.get("question_scores"))
+
+    print("QUESTION ATTEMPTS RECEIVED:")
+    print(attempt.get("question_attempts"))
+
+    print("KNOWLEDGE FINGERPRINT RECEIVED:")
+    print(attempt.get("knowledge_fingerprint"))
 
     # --------------------------------------------------------
     # AI ANALYSIS
@@ -1000,6 +1109,8 @@ def create_attempt(
         concept,
         db
     )
+    print("UPDATED FINGERPRINT AFTER ATTEMPT:")
+    print(json.dumps(fingerprint, indent=2))
 
     recommendation = generate_adaptive_recommendation(
     student_id,
@@ -1051,6 +1162,24 @@ def get_progress(
     dimension: str,
     db: Session = Depends(get_db),
 ):
+    print("====================================")
+    print("PROGRESS REQUEST")
+    print("student_id:", student_id)
+    print("concept:", concept)
+    print("dimension:", dimension)
+    print("====================================")
+
+    # ---------------------------------------------------------
+    # CONSTANTS
+    # ---------------------------------------------------------
+
+    REQUIRED_QUESTIONS = 6
+    MASTERY_SCORE = 80
+
+    # ---------------------------------------------------------
+    # NORMALIZE / VALIDATE DIMENSION
+    # ---------------------------------------------------------
+
     dimension = dimension.strip().lower()
 
     if dimension not in DIMENSIONS:
@@ -1062,6 +1191,10 @@ def get_progress(
                 "supported_dimensions": DIMENSIONS,
             },
         )
+
+    # ---------------------------------------------------------
+    # GET ALL ATTEMPTS
+    # ---------------------------------------------------------
 
     attempts = (
         db.query(models.LearningAttempt)
@@ -1081,6 +1214,7 @@ def get_progress(
     question_attempts = {}
 
     for attempt in attempts:
+
         if not attempt.question_id:
             continue
 
@@ -1098,9 +1232,12 @@ def get_progress(
 
         item = question_attempts[question_id]
 
+        # Count attempt
         item["attempts"] += 1
 
+        # Store score
         if attempt.score is not None:
+
             score = float(attempt.score)
 
             item["scores"].append(score)
@@ -1115,30 +1252,37 @@ def get_progress(
             ):
                 item["best_score"] = score
 
+        # Store mistake
         if attempt.mistake:
             item["mistakes"].append(attempt.mistake)
 
     # ---------------------------------------------------------
-    # MASTERY
+    # QUESTION COUNTS
+    # ---------------------------------------------------------
+
+    answered_question_ids = list(question_attempts.keys())
+
+    answered_count = len(answered_question_ids)
+
+    # ---------------------------------------------------------
+    # MASTERED QUESTIONS
     #
-    # IMPORTANT:
-    # A question remains mastered once the student has achieved
-    # >= 80 at least once.
+    # A question becomes mastered once its BEST score
+    # reaches 80.
     #
     # A later failed retest does NOT remove mastery.
     # ---------------------------------------------------------
 
-    completed_question_ids = [
+    mastered_question_ids = [
         question_id
         for question_id, item in question_attempts.items()
         if (
             item["best_score"] is not None
-            and item["best_score"] >= 80
+            and item["best_score"] >= MASTERY_SCORE
         )
     ]
 
-    completed_count = len(completed_question_ids)
-    question_count = len(question_attempts)
+    mastered_count = len(mastered_question_ids)
 
     # ---------------------------------------------------------
     # BEST SCORE PER QUESTION
@@ -1150,20 +1294,21 @@ def get_progress(
         if item["best_score"] is not None
     ]
 
-    dimension_score = (
-        round(sum(best_scores) / len(best_scores))
-        if best_scores
-        else None
-    )
+    if best_scores:
+        dimension_score = round(
+            sum(best_scores) / len(best_scores)
+        )
+    else:
+        dimension_score = None
 
     # ---------------------------------------------------------
     # MASTERY STATUS
     # ---------------------------------------------------------
 
-    if question_count == 0:
+    if answered_count == 0:
         mastery_status = "not_started"
 
-    elif completed_count == question_count:
+    elif mastered_count >= REQUIRED_QUESTIONS:
         mastery_status = "mastered"
 
     else:
@@ -1175,54 +1320,87 @@ def get_progress(
 
     last_question_id = None
 
-    if attempts:
-        for attempt in reversed(attempts):
-            if attempt.question_id:
-                last_question_id = str(attempt.question_id)
-                break
+    for attempt in reversed(attempts):
+        if attempt.question_id:
+            last_question_id = str(attempt.question_id)
+            break
+
+    # ---------------------------------------------------------
+    # PROGRESS PERCENTAGE
+    # ---------------------------------------------------------
+
+    progress_percentage = round(
+        mastered_count / REQUIRED_QUESTIONS * 100
+    )
+
+    # ---------------------------------------------------------
+    # RESPONSE
+    # ---------------------------------------------------------
 
     return {
         "student_id": student_id,
         "concept": concept,
         "dimension": dimension,
 
-        # Overall dimension score
+        # Average of best score for each question
         "score": dimension_score,
 
-        # Question-level scores
+        # -----------------------------------------------------
+        # QUESTION DATA
+        # -----------------------------------------------------
+
         "question_scores": {
             question_id: item["best_score"]
             for question_id, item in question_attempts.items()
         },
 
-        # Useful for displaying the most recent attempt
-        "latest_question_scores": {
-            question_id: item["latest_score"]
+        "question_attempts": {
+            question_id: item["attempts"]
             for question_id, item in question_attempts.items()
         },
 
-        "question_attempts": question_attempts,
-
         # -----------------------------------------------------
-        # THE IMPORTANT 5 / 6 VALUES
+        # COMPLETION / MASTERY
         # -----------------------------------------------------
 
-        "completed_question_ids": completed_question_ids,
-        "completed_count": completed_count,
-        "question_count": question_count,
+        "completed_question_ids": mastered_question_ids,
+
+        "completed_count": mastered_count,
+
+        "mastered_question_ids": mastered_question_ids,
+
+        "mastered_count": mastered_count,
+
+        "question_count": REQUIRED_QUESTIONS,
+
+        # -----------------------------------------------------
+        # PROGRESS
+        # -----------------------------------------------------
 
         "progress": {
-            "completed": completed_count,
-            "total": question_count,
-            "display": f"{completed_count}/{question_count}",
+            "completed": mastered_count,
+            "total": REQUIRED_QUESTIONS,
+            "percentage": progress_percentage,
+            "display": f"{mastered_count}/{REQUIRED_QUESTIONS}",
         },
+
+        # -----------------------------------------------------
+        # MASTERY
+        # -----------------------------------------------------
 
         "mastery": {
             "status": mastery_status,
-            "is_mastered": mastery_status == "mastered",
+            "is_mastered": (
+                mastered_count >= REQUIRED_QUESTIONS
+            ),
         },
 
+        # -----------------------------------------------------
+        # ATTEMPT INFO
+        # -----------------------------------------------------
+
         "attempt_count": len(attempts),
+
         "last_question_id": last_question_id,
     }
 
@@ -1439,22 +1617,35 @@ def get_fingerprint(
 
     total_completed = 0
     total_questions = 0
+    REQUIRED_QUESTIONS = 6
+    MASTERY_SCORE = 80
 
     for dimension in DIMENSIONS:
+
         questions = questions_by_dimension.get(
             dimension,
             {}
         )
 
-        question_count = len(questions)
+        # Best score for each question in this dimension
+        best_scores = {
+            question_id: item["best_score"]
+            for question_id, item in questions.items()
+        }
+
+        question_count = len(best_scores)
+
+        answered_count = sum(
+            1
+            for score in best_scores.values()
+            if score is not None
+        )
 
         completed_count = sum(
             1
-            for item in questions.values()
-            if (
-                item["best_score"] is not None
-                and item["best_score"] >= 80
-            )
+            for score in best_scores.values()
+            if score is not None
+            and score >= MASTERY_SCORE
         )
 
         total_questions += question_count
@@ -1463,25 +1654,27 @@ def get_fingerprint(
         dimension_progress[dimension] = {
             "completed": completed_count,
             "total": question_count,
-            "display": (
-                f"{completed_count}/{question_count}"
-                if question_count > 0
-                else "0/0"
-            ),
-            "mastered": (
-                question_count > 0
-                and completed_count == question_count
-            ),
+            "required": REQUIRED_QUESTIONS,
+            "display": f"{completed_count}/{REQUIRED_QUESTIONS}",
+            "attempted": question_count,
+            "mastered": completed_count >= REQUIRED_QUESTIONS,
         }
 
     # ---------------------------------------------------------
     # OVERALL MASTERY
     # ---------------------------------------------------------
 
-    overall_mastered = (
-        total_questions > 0
-        and total_completed == total_questions
-    )
+    overall_mastered = all(
+    sum(
+        1
+        for item in questions_by_dimension.get(dimension, {}).values()
+        if (
+            item["best_score"] is not None
+            and item["best_score"] >= MASTERY_SCORE
+        )
+    ) >= REQUIRED_QUESTIONS
+    for dimension in DIMENSIONS
+)
 
     return {
         "student_id": student_id,
@@ -1611,3 +1804,147 @@ def analyze_mistake_endpoint(data: dict):
             status_code=500,
             detail="AI analysis failed."
         )
+
+# ============================================================
+# RECORD MISTAKE HISTORY
+# ============================================================
+
+@app.post("/mistake-history")
+def create_mistake_history(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+
+    student_id = str(
+        payload.get("student_id", "")
+    ).strip()
+
+    concept = str(
+        payload.get("concept")
+        or payload.get("topic")
+        or ""
+    ).strip()
+
+    dimension = str(
+        payload.get("dimension", "")
+    ).strip().lower()
+
+    question_type = str(
+        payload.get("question_type", "")
+    ).strip().lower()
+
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
+
+    if not student_id:
+        raise HTTPException(
+            status_code=400,
+            detail="student_id is required"
+        )
+
+    if not concept:
+        raise HTTPException(
+            status_code=400,
+            detail="concept or topic is required"
+        )
+
+    if dimension not in DIMENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid learning dimension",
+                "received": dimension,
+                "supported_dimensions": DIMENSIONS,
+            }
+        )
+
+    if question_type not in SUPPORTED_QUESTION_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Invalid question type",
+                "received": question_type,
+                "supported_question_types": SUPPORTED_QUESTION_TYPES,
+            }
+        )
+
+    # --------------------------------------------------------
+    # RECORD MISTAKE
+    # --------------------------------------------------------
+
+    mistake = record_mistake(
+        student_id=student_id,
+        concept=concept,
+        dimension=dimension,
+        question_type=question_type,
+        question_id=payload.get("question_id"),
+        mistake_type=payload.get("mistake_type"),
+        mistake_detail=(
+            payload.get("mistake")
+            or payload.get("what_happened")
+            or payload.get("misconception")
+        ),
+        db=db,
+    )
+
+    # --------------------------------------------------------
+    # RESPONSE
+    # --------------------------------------------------------
+
+    return {
+        "success": True,
+        "mistake_id": mistake.id,
+        "count": mistake.count,
+    }
+
+# ============================================================
+# GET MISTAKE HISTORY
+# ============================================================
+
+@app.get("/mistakes/{student_id}")
+def get_mistake_history(
+    student_id: str,
+    db: Session = Depends(get_db),
+):
+    mistakes = (
+        db.query(models.MistakeHistory)
+        .filter(
+            models.MistakeHistory.student_id == student_id
+        )
+        .order_by(
+            models.MistakeHistory.count.desc(),
+            models.MistakeHistory.id.desc()
+        )
+        .all()
+    )
+
+    result = []
+
+    for mistake in mistakes:
+        result.append({
+            "id": mistake.id,
+            "student_id": mistake.student_id,
+            "concept": mistake.concept,
+            "dimension": mistake.dimension,
+            "question_id": mistake.question_id,
+            "mistake_type": mistake.mistake_type,
+            "mistake_detail": mistake.mistake_detail,
+            "count": mistake.count,
+            "created_at": mistake.created_at,
+            "updated_at": mistake.updated_at,
+        })
+
+    total_mistake_types = len(result)
+
+    total_mistake_attempts = sum(
+        int(mistake.count or 0)
+        for mistake in mistakes
+    )
+
+    return {
+        "student_id": student_id,
+        "mistakes": result,
+        "mistake_count": total_mistake_types,
+        "total_mistake_attempts": total_mistake_attempts,
+    }

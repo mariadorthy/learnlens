@@ -92,35 +92,35 @@ print(total)`,
   },
 
   python_syntax: {
-  id: "adaptive-python-syntax",
-  weakness: "python_syntax",
-  dimension: "implement",
-  type: "debugging",
+    id: "adaptive-python-syntax",
+    weakness: "python_syntax",
+    dimension: "implement",
+    type: "debugging",
 
-  title: "Fix the Python syntax",
+    title: "Fix the Python syntax",
 
-  instruction:
-    "The for loop is missing a required colon. Fix the syntax so the program prints the numbers 1 to 5.",
+    instruction:
+      "The for loop is missing a required colon. Fix the syntax so the program prints the numbers 1 to 5.",
 
-  starterCode: `for number in range(1, 6)
+    starterCode: `for number in range(1, 6)
     print(number)`,
 
-  expectedOutput: `1
+    expectedOutput: `1
 2
 3
 4
 5`,
 
-  hint:
-    "Python for-loop headers must end with a colon (:).",
+    hint:
+      "Python for-loop headers must end with a colon (:).",
 
-  check: (code) => {
-    return (
-      code.includes("for number in range(1, 6):") &&
-      code.includes("print(number)")
-    );
+    check: (code) => {
+      return (
+        code.includes("for number in range(1, 6):") &&
+        code.includes("print(number)")
+      );
+    },
   },
-},
 
   calculation_logic: {
     id: "adaptive-calculation-logic",
@@ -291,71 +291,71 @@ print(total)`,
     },
   },
   loop_condition: {
-  id: "adaptive-loop-condition",
-  weakness: "loop_condition",
-  dimension: "debug",
-  type: "debugging",
+    id: "adaptive-loop-condition",
+    weakness: "loop_condition",
+    dimension: "debug",
+    type: "debugging",
 
-  title: "Fix the loop condition",
+    title: "Fix the loop condition",
 
-  instruction:
-    "The program should print only the odd numbers from 1 to 9. Fix the loop condition.",
+    instruction:
+      "The program should print only the odd numbers from 1 to 9. Fix the loop condition.",
 
-  starterCode: `for i in range(1, 10):
+    starterCode: `for i in range(1, 10):
     if i % 2 == 0:
         print(i)`,
 
-  expectedOutput: `1
+    expectedOutput: `1
 3
 5
 7
 9`,
 
-  hint:
-    "Think about the condition that identifies odd numbers.",
+    hint:
+      "Think about the condition that identifies odd numbers.",
 
-  check: (code) => {
-    return (
-      code.includes("range(1, 10)") &&
-      code.includes("% 2") &&
-      (
-        code.includes("== 1") ||
-        code.includes("!= 0")
-      ) &&
-      code.includes("print(i)")
-    );
+    check: (code) => {
+      return (
+        code.includes("range(1, 10)") &&
+        code.includes("% 2") &&
+        (
+          code.includes("== 1") ||
+          code.includes("!= 0")
+        ) &&
+        code.includes("print(i)")
+      );
+    },
   },
-},
-general_debugging: {
-  id: "adaptive-general-debugging",
-  weakness: "general_debugging",
-  dimension: "debug",
-  type: "debugging",
+  general_debugging: {
+    id: "adaptive-general-debugging",
+    weakness: "general_debugging",
+    dimension: "debug",
+    type: "debugging",
 
-  title: "Practice debugging",
+    title: "Practice debugging",
 
-  instruction:
-    "Find and fix the mistake so the program produces the expected output.",
+    instruction:
+      "Find and fix the mistake so the program produces the expected output.",
 
-  starterCode: `for i in range(1, 6):
+    starterCode: `for i in range(1, 6):
     print(i * 2)`,
 
-  expectedOutput: `1
+    expectedOutput: `1
 2
 3
 4
 5`,
 
-  hint:
-    "Compare what the program currently calculates with the required output.",
+    hint:
+      "Compare what the program currently calculates with the required output.",
 
-  check: (code) => {
-    return (
-      code.includes("range(1, 6)") &&
-      code.includes("print(i)")
-    );
+    check: (code) => {
+      return (
+        code.includes("range(1, 6)") &&
+        code.includes("print(i)")
+      );
+    },
   },
-},
   loop_calculation: {
     id: "adaptive-loop-calculation",
     weakness: "loop_calculation",
@@ -413,27 +413,27 @@ general_debugging: {
     check: () => false,
   },
   loop_syntax: {
-  id: "adaptive-loop-syntax",
-  weakness: "loop_syntax",
-  dimension: "apply",
-  type: "debugging",
-  title: "Fix the loop syntax",
-  instruction:
-    "The for loop has a syntax mistake. Fix it so the program prints the numbers 1 to 5.",
-  starterCode: `for number in range(1, 6)
+    id: "adaptive-loop-syntax",
+    weakness: "loop_syntax",
+    dimension: "apply",
+    type: "debugging",
+    title: "Fix the loop syntax",
+    instruction:
+      "The for loop has a syntax mistake. Fix it so the program prints the numbers 1 to 5.",
+    starterCode: `for number in range(1, 6)
     print(number)`,
-  expectedOutput: `1
+    expectedOutput: `1
 2
 3
 4
 5`,
-  hint:
-    "Python for-loop headers must end with a colon (:).",
-  check: (code) => {
-    return (
-      code.includes("for number in range(1, 6):") &&
-      code.includes("print(number)")
-    );
+    hint:
+      "Python for-loop headers must end with a colon (:).",
+    check: (code) => {
+      return (
+        code.includes("for number in range(1, 6):") &&
+        code.includes("print(number)")
+      );
+    },
   },
-},
 };

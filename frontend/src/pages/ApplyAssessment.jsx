@@ -1,10 +1,19 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { concepts } from "../data/concepts";
 
 import ApplyAISection from "../components/ApplyAISection";
 
 import AssessmentQuestionNavigator from "../components/AssessmentQuestionNavigator";
+
+import {
+  saveMistakeHistory,
+} from "../utils/mistakeTracker";
 
 function ApplyAssessment({
   onComplete,
@@ -41,10 +50,9 @@ function ApplyAssessment({
   const [analyzing, setAnalyzing] =
     useState(false);
 
-  const [completedIds, setCompletedIds] =
-    useState(new Set());
-
   const [questionScores, setQuestionScores] =
+    useState({});
+  const [questionAttempts, setQuestionAttempts] =
     useState({});
 
   const [analysis, setAnalysis] =
@@ -54,6 +62,317 @@ function ApplyAssessment({
     showAdaptiveChallenge,
     setShowAdaptiveChallenge,
   ] = useState(false);
+
+  const [retestMode, setRetestMode] =
+    useState(false);
+
+  const [retestQuestionId, setRetestQuestionId] =
+    useState(null);
+
+  const [retestCompleted, setRetestCompleted] =
+    useState(false);
+
+  const MASTERY_THRESHOLD = 80;
+
+  // ============================================================
+  // COMPLETED QUESTIONS
+  // ============================================================
+
+  const completedIds = useMemo(() => {
+    return new Set(
+      questions
+        .filter(
+          (question) =>
+            Number(
+              questionScores[question.id] ?? 0
+            ) >= MASTERY_THRESHOLD
+        )
+        .map(
+          (question) => question.id
+        )
+    );
+  }, [
+    questions,
+    questionScores,
+  ]);
+
+  // ============================================================
+  // APPLY SCORE
+  // ============================================================
+
+  const calculateApplyScore = useCallback(
+    (scores) => {
+      if (!questions.length) {
+        return 0;
+      }
+
+      const allAnswered =
+        questions.every(
+          (item) =>
+            scores[item.id] !== undefined
+        );
+
+      if (!allAnswered) {
+        return 0;
+      }
+
+      const totalScore =
+        questions.reduce(
+          (sum, item) =>
+            sum +
+            Number(
+              scores[item.id] ?? 0
+            ),
+          0
+        );
+
+      return Math.round(
+        totalScore /
+        questions.length
+      );
+    },
+    [questions]
+  );
+
+  const applyScore = useMemo(
+    () =>
+      calculateApplyScore(
+        questionScores
+      ),
+    [
+      calculateApplyScore,
+      questionScores,
+    ]
+  );
+
+  // ============================================================
+  // APPLY DIMENSION RESULT
+  // ============================================================
+
+  const calculateDimensionResult =
+    useCallback(
+      (scores) => {
+        const total =
+          questions.length;
+
+        if (!total) {
+          return {
+            correct: 0,
+            total: 0,
+            score: 0,
+            attempted: 0,
+          };
+        }
+
+        const attempted =
+          questions.filter(
+            (item) =>
+              scores[item.id] !==
+              undefined
+          );
+
+        const correct =
+          questions.filter(
+            (item) =>
+              Number(
+                scores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          ).length;
+
+        const score = Math.round(
+          (correct / total) * 100
+        );
+
+        return {
+          correct,
+          total,
+          score,
+          attempted:
+            attempted.length,
+        };
+      },
+      [questions]
+    );
+
+  // ============================================================
+  // KNOWLEDGE FINGERPRINT
+  // ============================================================
+
+  const buildKnowledgeFingerprint =
+    useCallback(
+      (dimensionResult) => {
+        return {
+          apply: {
+            score: Number(
+              dimensionResult.score ?? 0
+            ),
+
+            correct: Number(
+              dimensionResult.correct ?? 0
+            ),
+
+            total: Number(
+              dimensionResult.total ?? 0
+            ),
+          },
+
+          updated_dimension:
+            "apply",
+
+          updated_at:
+            new Date().toISOString(),
+        };
+      },
+      []
+    );
+
+  // ============================================================
+  // UPDATE KNOWLEDGE FINGERPRINT
+  // ============================================================
+
+  const updateKnowledgeFingerprint =
+    useCallback(
+      async (dimensionResult) => {
+        const fingerprint =
+          buildKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/knowledge-fingerprint`,
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify({
+                  student_id:
+                    String(student.id),
+
+                  concept:
+                    "loops",
+
+                  dimension:
+                    "apply",
+
+                  fingerprint,
+
+                  dimension_score:
+                    Number(
+                      dimensionResult.score ??
+                      0
+                    ),
+
+                  dimension_correct:
+                    Number(
+                      dimensionResult.correct ??
+                      0
+                    ),
+
+                  dimension_total:
+                    Number(
+                      dimensionResult.total ??
+                      0
+                    ),
+                }),
+              }
+            );
+
+          if (!response.ok) {
+            console.warn(
+              "Apply fingerprint endpoint returned:",
+              response.status
+            );
+
+            return false;
+          }
+
+          return true;
+        } catch (error) {
+          console.warn(
+            "Apply fingerprint update failed:",
+            error
+          );
+
+          return false;
+        }
+      },
+      [
+        API_URL,
+        student?.id,
+        buildKnowledgeFingerprint,
+      ]
+    );
+
+  // ============================================================
+  // COMPLETE APPLY ASSESSMENT
+  // ============================================================
+
+  const completeApplyAssessment =
+    useCallback(
+      async (scores) => {
+        const allMastered =
+          questions.length > 0 &&
+          questions.every(
+            (item) =>
+              Number(
+                scores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          );
+
+        if (!allMastered) {
+          return;
+        }
+
+        const dimensionResult =
+          calculateDimensionResult(
+            scores
+          );
+
+        const fingerprintSaved =
+          await updateKnowledgeFingerprint(
+            dimensionResult
+          );
+
+        if (!fingerprintSaved) {
+          console.warn(
+            "Apply fingerprint could not be saved."
+          );
+        }
+
+        onComplete({
+          dimension: "apply",
+
+          correct:
+            dimensionResult.correct,
+
+          total:
+            dimensionResult.total,
+
+          score:
+            dimensionResult.score,
+
+          fingerprint:
+            buildKnowledgeFingerprint(
+              dimensionResult
+            ),
+        });
+      },
+      [
+        questions,
+        calculateDimensionResult,
+        updateKnowledgeFingerprint,
+        onComplete,
+        buildKnowledgeFingerprint,
+      ]
+    );
 
   // ============================================================
   // QUESTION SELECT
@@ -75,6 +394,10 @@ function ApplyAssessment({
     setResult(null);
     setAnalysis(null);
     setShowAdaptiveChallenge(false);
+
+    setRetestMode(false);
+    setRetestQuestionId(null);
+    setRetestCompleted(false);
   };
 
   // ============================================================
@@ -86,6 +409,13 @@ function ApplyAssessment({
       setLoadingProgress(false);
       return;
     }
+
+    if (questions.length === 0) {
+      setLoadingProgress(false);
+      return;
+    }
+
+    let cancelled = false;
 
     const loadApplyProgress = async () => {
       try {
@@ -104,58 +434,83 @@ function ApplyAssessment({
         const data =
           await response.json();
 
+        if (cancelled) {
+          return;
+        }
+
         console.log(
-          "Resume Apply progress:",
+          "APPLY PROGRESS:",
           data
         );
 
-        const loadedCompletedIds =
-          new Set(
-            data.completed_question_ids || []
-          );
+        // --------------------------------------------------------
+        // QUESTION SCORES
+        // --------------------------------------------------------
 
-        setCompletedIds(
-          loadedCompletedIds
+        const loadedScores =
+          data.question_scores || {};
+
+        setQuestionScores(
+          loadedScores
         );
 
-        if (data.question_scores) {
-          setQuestionScores(
-            data.question_scores
-          );
-        }
+        // --------------------------------------------------------
+        // QUESTION SCORES ARE THE SOURCE OF TRUTH
+        // --------------------------------------------------------
+        //
+        // Do NOT trust backend completed_question_ids.
+        //
+        // A question is mastered only when
+        // its saved best score is >= 80.
+        //
 
         const nextIndex =
           questions.findIndex(
-            (question) =>
-              !loadedCompletedIds.has(
-                question.id
-              )
+            (item) =>
+              Number(
+                loadedScores[item.id] ?? 0
+              ) <
+              MASTERY_THRESHOLD
           );
 
-        // ========================================================
-        // ALL APPLY QUESTIONS ALREADY COMPLETE
-        // ========================================================
-
-        if (nextIndex === -1) {
-          console.log(
-            "APPLY ALREADY COMPLETE → SKIPPING"
+        if (nextIndex !== -1) {
+          setCurrentIndex(
+            nextIndex
           );
 
-          onComplete({
-            success: true,
-            score: 100,
-            dimension: "apply",
-          });
+          setCode(
+            questions[nextIndex]
+              .starterCode || ""
+          );
 
           return;
         }
 
-        setCurrentIndex(nextIndex);
+        // --------------------------------------------------------
+        // EVERYTHING MASTERED
+        // --------------------------------------------------------
 
-        setCode(
-          questions[nextIndex]?.starterCode ||
-          ""
-        );
+        const allMastered =
+          questions.length > 0 &&
+          questions.every(
+            (item) =>
+              Number(
+                loadedScores[item.id] ?? 0
+              ) >=
+              MASTERY_THRESHOLD
+          );
+
+        if (allMastered) {
+          console.log(
+            "ALL APPLY QUESTIONS MASTERED → COMPLETE"
+          );
+
+          await completeApplyAssessment(
+            loadedScores
+          );
+
+          return;
+        }
       } catch (error) {
         console.error(
           "Could not load Apply progress:",
@@ -164,20 +519,29 @@ function ApplyAssessment({
 
         setCurrentIndex(0);
 
-        setCode(
-          questions[0]?.starterCode || ""
-        );
+        if (questions[0]) {
+          setCode(
+            questions[0]
+              .starterCode || ""
+          );
+        }
       } finally {
-        setLoadingProgress(false);
+        if (!cancelled) {
+          setLoadingProgress(false);
+        }
       }
     };
 
     loadApplyProgress();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     student?.id,
     API_URL,
-    onComplete,
     questions,
+    completeApplyAssessment,
   ]);
 
   // ============================================================
@@ -326,14 +690,14 @@ function ApplyAssessment({
     const hasWhile = /\bwhile\b/.test(currentCode);
 
     const forLineMissingColon = currentCode
-  .split("\n")
-  .some(
-    (line) =>
-      /^\s*for\b/.test(line) &&
-      !line.trim().endsWith(":")
-  );
+      .split("\n")
+      .some(
+        (line) =>
+          /^\s*for\b/.test(line) &&
+          !line.trim().endsWith(":")
+      );
 
-if (forLineMissingColon) {
+    if (forLineMissingColon) {
       return {
         weakness: "loop_syntax",
         mistakeType: "syntax_error",
@@ -487,6 +851,101 @@ if (forLineMissingColon) {
     };
   };
 
+  const trackApplyMistake = async ({
+    mistakeType,
+    score,
+    attemptNumber,
+    errorMessage = "",
+    misconception = "",
+    recommendation = "",
+    weakness = "",
+    weaknessType = "",
+  }) => {
+
+    return saveMistakeHistory({
+      API_URL,
+
+      studentId: student?.id,
+
+      // Learning hierarchy
+      topic: "loops",
+      concept: "loops",
+      dimension: "apply",
+
+      // Question
+      questionId: question?.id,
+      questionType: "code",
+      questionFormat: "coding",
+      question: question?.description,
+
+      // Attempt
+      score: score ?? 0,
+      maxScore: 100,
+      attemptNumber,
+
+      // Student response
+      studentAnswer: code,
+      correctAnswer:
+        question?.expectedOutput || "",
+
+      // Mistake
+      mistakeType,
+      mistake:
+        errorMessage ||
+        mistakeType ||
+        "Application mistake",
+
+      weakness:
+        weakness ||
+        analysis?.weakness ||
+        null,
+
+      weaknessType:
+        weaknessType ||
+        analysis?.weakness ||
+        null,
+
+      // Analysis
+      misconception:
+        misconception ||
+        analysis?.misconception ||
+        null,
+
+      whatHappened:
+        errorMessage ||
+        analysis?.whatHappened ||
+        null,
+
+      recommendation:
+        recommendation ||
+        analysis?.recommendedNextStep ||
+        null,
+
+      // Code-specific
+      code,
+      errorMessage,
+
+      expectedOutput:
+        question?.expectedOutput || "",
+
+      actualOutput:
+        output || "",
+
+      // Retest
+      retestMode,
+      isRetest: retestMode,
+
+      // Extra information
+      metadata: {
+        question_title:
+          question?.title || null,
+
+        adaptive:
+          question?.adaptive || null,
+      },
+    });
+  };
+
   // ============================================================
   // ANALYZE APPLY MISTAKE
   // LOCAL ONLY — NO GEMINI / NO /analyze-mistake
@@ -589,7 +1048,20 @@ if (forLineMissingColon) {
     const currentCode =
       code.trim();
 
+    const attemptNumber =
+      Number(
+        questionAttempts[question.id] ?? 0
+      ) + 1;
+
+    const updatedAttempts = {
+      ...questionAttempts,
+      [question.id]: attemptNumber,
+    };
+
+    setQuestionAttempts(updatedAttempts);
+
     setResult(null);
+
     setOutput("");
     setAnalysis(null);
     setShowAdaptiveChallenge(false);
@@ -616,6 +1088,12 @@ if (forLineMissingColon) {
       await analyzeApplyMistake({
         mistakeType: "no_code",
         score: 0,
+        errorMessage,
+      });
+      await trackApplyMistake({
+        mistakeType: "no_code",
+        score: 0,
+        attemptNumber,
         errorMessage,
       });
 
@@ -703,6 +1181,12 @@ if (forLineMissingColon) {
         await analyzeApplyMistake({
           mistakeType,
           score: 40,
+          errorMessage,
+        });
+        await trackApplyMistake({
+          mistakeType,
+          score: 40,
+          attemptNumber,
           errorMessage,
         });
 
@@ -799,6 +1283,25 @@ if (forLineMissingColon) {
           data.score ?? 40,
         errorMessage,
       });
+      await trackApplyMistake({
+        mistakeType,
+        score: data.score ?? 40,
+        attemptNumber,
+        errorMessage,
+
+        weakness:
+          localAnalysis.weakness,
+
+        misconception:
+          localAnalysis.misconception,
+
+        recommendation:
+          localAnalysis.recommendedNextStep,
+
+        weaknessType:
+          localAnalysis.weakness,
+      });
+
     } catch (error) {
       console.error(
         "Run Apply code error:",
@@ -836,9 +1339,9 @@ if (forLineMissingColon) {
   // ============================================================
 
   const submitApplication = async () => {
-    // ========================================================
+    // ----------------------------------------------------------
     // STUDENT CHECK
-    // ========================================================
+    // ----------------------------------------------------------
 
     if (!student?.id) {
       setResult({
@@ -854,9 +1357,9 @@ if (forLineMissingColon) {
       return;
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // MUST RUN FIRST
-    // ========================================================
+    // ----------------------------------------------------------
 
     if (!result) {
       setResult({
@@ -872,9 +1375,9 @@ if (forLineMissingColon) {
       return;
     }
 
-    // ========================================================
+    // ----------------------------------------------------------
     // MUST BE CORRECT
-    // ========================================================
+    // ----------------------------------------------------------
 
     if (!result.success) {
       setResult({
@@ -890,9 +1393,9 @@ if (forLineMissingColon) {
     setSaving(true);
 
     try {
-      // ======================================================
-      // SAVE ATTEMPT
-      // ======================================================
+      // --------------------------------------------------------
+      // SAVE CURRENT ATTEMPT
+      // --------------------------------------------------------
 
       const response = await fetch(
         `${API_URL}/attempts`,
@@ -912,13 +1415,16 @@ if (forLineMissingColon) {
 
             concept: "loops",
 
-            dimension: "apply",
+            dimension:
+              "apply",
 
             question_id:
               question.id,
 
             score:
-              result.score,
+              Number(
+                result.score ?? 0
+              ),
 
             question:
               question.description,
@@ -927,12 +1433,42 @@ if (forLineMissingColon) {
               code,
 
             correct_answer:
-              question.expectedOutput,
+              question.expectedOutput ||
+              "",
 
-            mistake: "none",
+            mistake:
+              "none",
 
             mistake_type:
-              result.mistakeType,
+              "application_success",
+
+            recommendation:
+              "Application successfully demonstrated.",
+
+            weakness:
+              analysis?.weakness ||
+              question.adaptive?.mistakes?.[0]?.id ||
+              "general_implementation",
+
+            weakness_type:
+              analysis?.weakness ||
+              question.adaptive?.mistakes?.[0]?.id ||
+              "general_implementation",
+
+            knowledge_fingerprint: {
+              apply: {
+                score:
+                  Number(
+                    result.score ?? 0
+                  ),
+              },
+            },
+
+            retest_mode:
+              retestMode,
+
+            is_retest:
+              retestMode,
           }),
         }
       );
@@ -960,71 +1496,186 @@ if (forLineMissingColon) {
         );
       }
 
-      console.log(
-        "✅ Attempt saved"
-      );
+      // --------------------------------------------------------
+      // CALCULATE BEST SCORE
+      // --------------------------------------------------------
 
-      // ======================================================
-      // UPDATE COMPLETED IDS
-      // ======================================================
-
-      const updatedCompletedIds =
-        new Set(completedIds);
-
-      updatedCompletedIds.add(
-        question.id
-      );
-
-      setCompletedIds(
-        updatedCompletedIds
-      );
-
-      // ======================================================
-      // UPDATE QUESTION SCORE
-      // ======================================================
-
-      setQuestionScores(
-        (previous) => ({
-          ...previous,
-
-          [question.id]:
-            result.score,
-        })
-      );
-
-      // ======================================================
-      // FIND NEXT INCOMPLETE QUESTION
-      // ======================================================
-
-      const nextIndex =
-        questions.findIndex(
-          (q) =>
-            !updatedCompletedIds.has(
-              q.id
-            )
+      const previousScore =
+        Number(
+          questionScores[
+          question.id
+          ] ?? 0
         );
 
-      if (nextIndex !== -1) {
-        resetQuestion(
-          nextIndex
+      const updatedScore =
+        Math.max(
+          previousScore,
+          Number(
+            result.score ?? 0
+          )
+        );
+
+      // --------------------------------------------------------
+      // IMPORTANT:
+      // Build latest scores synchronously.
+      // Do NOT wait for React state.
+      // --------------------------------------------------------
+
+      const updatedScores = {
+        ...questionScores,
+
+        [question.id]:
+          updatedScore,
+      };
+
+      setQuestionScores(
+        updatedScores
+      );
+
+      // --------------------------------------------------------
+      // RETEST SUCCESS
+      // --------------------------------------------------------
+
+      if (
+        retestMode &&
+        retestQuestionId ===
+        question.id
+      ) {
+        setRetestCompleted(true);
+        setRetestMode(false);
+        setRetestQuestionId(null);
+      }
+
+      // --------------------------------------------------------
+      // FIND NEXT UNMASTERED QUESTION
+      // --------------------------------------------------------
+
+      const nextQuestion =
+        questions
+          .map(
+            (item, index) => ({
+              item,
+              index,
+              score: Number(
+                updatedScores[
+                item.id
+                ] ?? 0
+              ),
+            })
+          )
+          .filter(
+            ({ score }) =>
+              score <
+              MASTERY_THRESHOLD
+          )
+          .sort(
+            (a, b) =>
+              a.score - b.score
+          )[0];
+
+      // --------------------------------------------------------
+      // CONTINUE TO LOWEST-SCORING UNMASTERED
+      // --------------------------------------------------------
+
+      if (nextQuestion) {
+        setCurrentIndex(
+          nextQuestion.index
+        );
+
+        setCode(
+          nextQuestion.item
+            .starterCode || ""
+        );
+
+        setOutput("");
+        setResult(null);
+        setAnalysis(null);
+        setShowAdaptiveChallenge(false);
+
+        return;
+      }
+
+      // --------------------------------------------------------
+      // ALL QUESTIONS MASTERED
+      // --------------------------------------------------------
+
+      const allMastered =
+        questions.length > 0 &&
+        questions.every(
+          (item) =>
+            Number(
+              updatedScores[
+              item.id
+              ] ?? 0
+            ) >=
+            MASTERY_THRESHOLD
+        );
+
+      if (allMastered) {
+        console.log(
+          "ALL APPLY QUESTIONS MASTERED"
+        );
+
+        await completeApplyAssessment(
+          updatedScores
         );
 
         return;
       }
 
-      // ======================================================
-      // ALL APPLY QUESTIONS COMPLETE
-      // ======================================================
+      // --------------------------------------------------------
+      // FINAL RECOVERY FALLBACK
+      // --------------------------------------------------------
 
-      console.log(
-        "APPLY COMPLETE → MOVING TO NEXT DIMENSION"
-      );
+      const weakestQuestion =
+        questions
+          .map(
+            (item, index) => ({
+              item,
+              index,
+              score:
+                Number(
+                  updatedScores[
+                  item.id
+                  ] ?? 0
+                ),
+            })
+          )
+          .filter(
+            ({ score }) =>
+              score <
+              MASTERY_THRESHOLD
+          )
+          .sort(
+            (a, b) =>
+              a.score - b.score
+          )[0];
 
-      onComplete({
-        success: true,
-        score: 100,
-        dimension: "apply",
-      });
+      if (weakestQuestion) {
+        setCurrentIndex(
+          weakestQuestion.index
+        );
+
+        setCode(
+          weakestQuestion.item
+            .starterCode || ""
+        );
+
+        setOutput("");
+        setResult(null);
+        setAnalysis(null);
+        setShowAdaptiveChallenge(false);
+
+        setRetestMode(true);
+
+        setRetestQuestionId(
+          weakestQuestion.item.id
+        );
+
+        setRetestCompleted(false);
+
+        return;
+      }
     } catch (error) {
       console.error(
         "❌ Submit Apply failed:",
@@ -1063,6 +1714,10 @@ if (forLineMissingColon) {
     setResult(null);
     setAnalysis(null);
     setShowAdaptiveChallenge(false);
+
+    setRetestMode(false);
+    setRetestQuestionId(null);
+    setRetestCompleted(false);
   };
 
   // ============================================================
@@ -1109,6 +1764,24 @@ if (forLineMissingColon) {
           in a new problem.
         </p>
 
+        <div
+          style={{
+            marginTop: "12px",
+            fontSize: "14px",
+            color: "#64748b",
+          }}
+        >
+          Apply Score:{" "}
+          <strong>
+            {applyScore}%
+          </strong>
+          {" "}
+          / mastery threshold{" "}
+          <strong>
+            {MASTERY_THRESHOLD}%
+          </strong>
+        </div>
+
       </div>
 
       {/* NAVIGATOR */}
@@ -1136,6 +1809,20 @@ if (forLineMissingColon) {
         {/* QUESTION */}
 
         <div className="apply-task">
+
+          {retestMode && (
+            <span
+              className="debug-difficulty"
+              style={{
+                background: "#fef3c7",
+                color: "#92400e",
+                display: "inline-block",
+                marginBottom: "12px",
+              }}
+            >
+              Targeted Retest
+            </span>
+          )}
 
           <p className="question-label">
             APPLICATION CHALLENGE

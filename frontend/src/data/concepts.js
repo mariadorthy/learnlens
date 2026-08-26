@@ -298,7 +298,7 @@ export const predictWeaknesses = {
   // --------------------------------------------------------
   // PREDICT QUESTION 1
   // --------------------------------------------------------
-  "predict-1": {
+  "predict-loop-addition": {
     explanation:
       "A for loop is commonly used when iterating over a sequence or when the number of iterations is known. The loop executes once for each value produced by range().",
 
@@ -327,7 +327,7 @@ print(x)`,
   // --------------------------------------------------------
   // PREDICT QUESTION 2
   // --------------------------------------------------------
-  "predict-2": {
+  "predict-loop-sum": {
     explanation:
       "A while loop continues executing as long as its condition remains True. The condition is checked before every iteration.",
 
@@ -355,7 +355,7 @@ while x < 3:
   // --------------------------------------------------------
   // PREDICT QUESTION 3
   // --------------------------------------------------------
-  "predict-3": {
+  "predict-loop-subtraction": {
     explanation:
       "When a for loop uses range(), the loop runs once for each value produced by range(). The stop value is excluded.",
 
@@ -380,7 +380,7 @@ while x < 3:
   // --------------------------------------------------------
   // PREDICT QUESTION 4
   // --------------------------------------------------------
-  "predict-4": {
+  "predict-loop-sub": {
     explanation:
       "The third argument of range() is the step. It determines how much the value changes after each iteration. The stop value is still excluded.",
 
@@ -405,7 +405,7 @@ while x < 3:
   // --------------------------------------------------------
   // PREDICT QUESTION 5
   // --------------------------------------------------------
-  "predict-5": {
+  "predict-break": {
     explanation:
       "The break statement immediately terminates the loop. Once Python reaches break, no further iterations of that loop are executed.",
 
@@ -432,7 +432,7 @@ while x < 3:
   // --------------------------------------------------------
   // PREDICT QUESTION 6
   // --------------------------------------------------------
-  "predict-6": {
+  "predict-continue": {
     explanation:
       "The continue statement skips the rest of the current iteration and moves to the next iteration. It does not terminate the loop.",
 
@@ -712,7 +712,7 @@ while x < 5:
       },
     ],
 
-        // ========================================================
+    // ========================================================
     // EXPLAIN QUESTIONS
     // ========================================================
 
@@ -889,13 +889,13 @@ for i in range(1, 6):
       },
     ],
 
-        // ========================================================
+    // ========================================================
     // PREDICT
     // ========================================================
 
     predictQuestions: [
       {
-        id: "predict-1",
+        id: "predict-loop-addition",
         code: `x = 2
 
 for i in range(3):
@@ -924,7 +924,7 @@ print(x)`,
       },
 
       {
-        id: "predict-2",
+        id: "predict-loop-sum",
         code: `total = 0
 
 for i in range(1, 5):
@@ -953,7 +953,7 @@ print(total)`,
       },
 
       {
-        id: "predict-3",
+        id: "predict-loop-subtraction",
         code: `x = 10
 
 for i in range(3):
@@ -982,7 +982,7 @@ print(x)`,
       },
 
       {
-        id: "predict-4",
+        id: "predict-loop-sub",
         code: `for i in range(1, 6, 2):
     print(i)`,
 
@@ -1003,7 +1003,7 @@ print(x)`,
       },
 
       {
-        id: "predict-5",
+        id: "predict-break",
         code: `for i in range(5):
     if i == 3:
         break
@@ -1028,7 +1028,7 @@ print(x)`,
       },
 
       {
-        id: "predict-6",
+        id: "predict-continue",
         code: `for i in range(1, 6):
     if i == 3:
         continue
@@ -1052,14 +1052,14 @@ print(x)`,
     print(i)`,
       },
     ],
-    
+
     // ========================================================
     // IMPLEMENT
     // ========================================================
 
     implementQuestions: [
       {
-        id: "implement-1",
+        id: "print-numbers-1-to-5",
         title: "Print numbers from 1 to 5",
         description:
           "Write a Python program that prints the numbers 1, 2, 3, 4 and 5 using a for loop.",
@@ -1090,7 +1090,7 @@ print(x)`,
       },
 
       {
-        id: "implement-2",
+        id: "print-first-5-even-numbers",
         title: "Print even numbers from 2 to 10",
         description:
           "Write a Python program that prints only the even numbers from 2 to 10 using a loop.",
@@ -1121,7 +1121,7 @@ pass`,
       },
 
       {
-        id: "implement-3",
+        id: "calculate-sum-1-to-5",
         title: "Calculate the sum from 1 to 5",
         description:
           "Write a Python program that calculates and prints the sum of the numbers from 1 to 5 using a loop.",
@@ -1159,7 +1159,7 @@ print(total)`,
       },
 
       {
-        id: "implement-4",
+        id: "countdown-5-to-1",
         title: "Print a countdown from 5 to 1",
         description:
           "Write a Python program that prints the numbers 5, 4, 3, 2 and 1 using a for loop.",
@@ -1190,7 +1190,7 @@ pass`,
       },
 
       {
-        id: "implement-5",
+        id: "calculate-total-price",
         title: "Calculate the total price",
         description:
           "A shop has three prices: 10, 20 and 30. Write a Python program that uses a loop to calculate and print the total price.",
@@ -1230,7 +1230,7 @@ print(total)`,
       },
 
       {
-        id: "implement-6",
+        id: "calculate-squares-1-to-5",
         title: "Print the squares from 1 to 5",
         description:
           "Write a Python program that prints the square of each number from 1 to 5 using a loop.",
@@ -1273,7 +1273,7 @@ print(total)`,
 
     debugQuestions: [
       {
-        id: "debug-1",
+        id: "print-odd-numbers-1-to-9",
 
         title: "Print odd numbers from 1 to 9",
 
@@ -1305,7 +1305,7 @@ print(total)`,
       },
 
       {
-        id: "debug-2",
+        id: "calculate-sum-1-to-10",
 
         title: "Calculate the sum from 1 to 10",
 
@@ -1342,7 +1342,7 @@ print(total)`,
       },
 
       {
-        id: "debug-3",
+        id: "multiplication-table-of-5",
 
         title: "Print the multiplication table of 5",
 
@@ -1385,7 +1385,7 @@ print(total)`,
       },
 
       {
-        id: "debug-4",
+        id: "countdown-5-to-1",
 
         title: "Print a countdown",
 
@@ -1417,7 +1417,7 @@ print(total)`,
       },
 
       {
-        id: "debug-5",
+        id: "calculate-total-price",
 
         title: "Calculate the total price",
 
@@ -1454,7 +1454,7 @@ print(total)`,
       },
 
       {
-        id: "debug-6",
+        id: "calculate-squares-1-to-5",
 
         title: "Print the squares from 1 to 5",
 
@@ -1495,220 +1495,220 @@ print(total)`,
     // ========================================================
     // APPLY
     // ========================================================
-applyQuestions: [
-  {
-    id: "apply-1",
-    title: "Print Practice 1 to 5",
-    description:
-      "A teacher wants to print Practice 1 through Practice 5. Write a Python program using a loop.",
-    difficulty: "Easy",
-    variables: [
+    applyQuestions: [
       {
-        name: "number",
-        purpose: "Stores the current practice number.",
-      },
-    ],
-    hint:
-      "Use a for loop with range(1, 6), then print the current number.",
-    starterCode: `for number in range(1, 6):
+        id: "print-practice-1-to-5",
+        title: "Print Practice 1 to 5",
+        description:
+          "A teacher wants to print Practice 1 through Practice 5. Write a Python program using a loop.",
+        difficulty: "Easy",
+        variables: [
+          {
+            name: "number",
+            purpose: "Stores the current practice number.",
+          },
+        ],
+        hint:
+          "Use a for loop with range(1, 6), then print the current number.",
+        starterCode: `for number in range(1, 6):
 
     # Write your code here
 
     pass`,
-    correctCode: `for number in range(1, 6):
+        correctCode: `for number in range(1, 6):
 
     print("Practice", number)`,
-    expectedOutput: `Practice 1
+        expectedOutput: `Practice 1
 Practice 2
 Practice 3
 Practice 4
 Practice 5`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "range",
-        "loop_variable",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "missing_range",
-          check: "range",
-          note:
-            "The loop should visit numbers 1 through 5.",
-          explanation:
-            "Remember that the stop value in range() is excluded.",
-          hint:
-            "Use range(1, 6).",
+        adaptive: {
+          skills: [
+            "for_loop",
+            "range",
+            "loop_variable",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "missing_range",
+              check: "range",
+              note:
+                "The loop should visit numbers 1 through 5.",
+              explanation:
+                "Remember that the stop value in range() is excluded.",
+              hint:
+                "Use range(1, 6).",
+            },
+            {
+              id: "wrong_range",
+              check: "range",
+              note:
+                "Your range does not produce exactly 1, 2, 3, 4, 5.",
+              explanation:
+                "range() stops before its second value.",
+              hint:
+                "To include 5, use range(1, 6).",
+            },
+            {
+              id: "missing_loop",
+              check: "for_loop",
+              note:
+                "The task requires a loop.",
+              explanation:
+                "Use a for loop to repeat the printing operation.",
+              hint:
+                "Try: for number in range(1, 6):",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "Your loop does not print anything.",
+              explanation:
+                "The current number needs to be printed during every iteration.",
+              hint:
+                "Put print(...) inside the loop.",
+            },
+            {
+              id: "wrong_output",
+              check: "practice_output",
+              note:
+                "The numbers are being processed, but the required 'Practice' text is missing or incorrect.",
+              explanation:
+                "Each line should contain the word Practice followed by the current number.",
+              hint:
+                'Use print("Practice", number).',
+            },
+            {
+              id: "indentation",
+              check: "indentation",
+              note:
+                "The statement inside the loop needs to be indented.",
+              explanation:
+                "Python uses indentation to determine which statements belong to the loop.",
+              hint:
+                "Indent the print statement under the for loop.",
+            },
+          ],
         },
-        {
-          id: "wrong_range",
-          check: "range",
-          note:
-            "Your range does not produce exactly 1, 2, 3, 4, 5.",
-          explanation:
-            "range() stops before its second value.",
-          hint:
-            "To include 5, use range(1, 6).",
-        },
-        {
-          id: "missing_loop",
-          check: "for_loop",
-          note:
-            "The task requires a loop.",
-          explanation:
-            "Use a for loop to repeat the printing operation.",
-          hint:
-            "Try: for number in range(1, 6):",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "Your loop does not print anything.",
-          explanation:
-            "The current number needs to be printed during every iteration.",
-          hint:
-            "Put print(...) inside the loop.",
-        },
-        {
-          id: "wrong_output",
-          check: "practice_output",
-          note:
-            "The numbers are being processed, but the required 'Practice' text is missing or incorrect.",
-          explanation:
-            "Each line should contain the word Practice followed by the current number.",
-          hint:
-            'Use print("Practice", number).',
-        },
-        {
-          id: "indentation",
-          check: "indentation",
-          note:
-            "The statement inside the loop needs to be indented.",
-          explanation:
-            "Python uses indentation to determine which statements belong to the loop.",
-          hint:
-            "Indent the print statement under the for loop.",
-        },
-      ],
-    },
-  },
-
-  {
-    id: "apply-2",
-    title: "Print the first 5 even numbers",
-    description:
-      "Write a Python program that prints the first five even numbers.",
-    difficulty: "Easy",
-    variables: [
-      {
-        name: "number",
-        purpose: "Stores the current even number.",
       },
-    ],
-    hint:
-      "Think about using range() with a step of 2.",
-    starterCode: `# Write your solution here
+
+      {
+        id: "print-first-5-even-numbers",
+        title: "Print the first 5 even numbers",
+        description:
+          "Write a Python program that prints the first five even numbers.",
+        difficulty: "Easy",
+        variables: [
+          {
+            name: "number",
+            purpose: "Stores the current even number.",
+          },
+        ],
+        hint:
+          "Think about using range() with a step of 2.",
+        starterCode: `# Write your solution here
 
 pass`,
-    correctCode: `for number in range(2, 11, 2):
+        correctCode: `for number in range(2, 11, 2):
 
     print(number)`,
-    expectedOutput: `2
+        expectedOutput: `2
 4
 6
 8
 10`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "range",
-        "range_step",
-        "even_numbers",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "wrong_start",
-          check: "range_start",
-          note:
-            "The loop should start at the first even number: 2.",
-          explanation:
-            "The first five even numbers start at 2.",
-          hint:
-            "Start the range at 2.",
+        adaptive: {
+          skills: [
+            "for_loop",
+            "range",
+            "range_step",
+            "even_numbers",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "wrong_start",
+              check: "range_start",
+              note:
+                "The loop should start at the first even number: 2.",
+              explanation:
+                "The first five even numbers start at 2.",
+              hint:
+                "Start the range at 2.",
+            },
+            {
+              id: "wrong_step",
+              check: "range_step",
+              note:
+                "Your range is not moving through even numbers correctly.",
+              explanation:
+                "A step of 2 moves from one even number to the next.",
+              hint:
+                "Try range(2, 11, 2).",
+            },
+            {
+              id: "wrong_stop",
+              check: "range_stop",
+              note:
+                "Your range does not include all five even numbers.",
+              explanation:
+                "The stop value is excluded.",
+              hint:
+                "Use range(2, 11, 2).",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "The loop generates numbers but does not print them.",
+              explanation:
+                "The current number needs to be printed.",
+              hint:
+                "Put print(number) inside the loop.",
+            },
+            {
+              id: "hardcoded_output",
+              check: "hardcoded_output",
+              note:
+                "The solution appears to print the values manually instead of using the loop.",
+              explanation:
+                "The purpose of this task is to use a loop.",
+              hint:
+                "Use the loop variable to produce the output.",
+            },
+          ],
         },
-        {
-          id: "wrong_step",
-          check: "range_step",
-          note:
-            "Your range is not moving through even numbers correctly.",
-          explanation:
-            "A step of 2 moves from one even number to the next.",
-          hint:
-            "Try range(2, 11, 2).",
-        },
-        {
-          id: "wrong_stop",
-          check: "range_stop",
-          note:
-            "Your range does not include all five even numbers.",
-          explanation:
-            "The stop value is excluded.",
-          hint:
-            "Use range(2, 11, 2).",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "The loop generates numbers but does not print them.",
-          explanation:
-            "The current number needs to be printed.",
-          hint:
-            "Put print(number) inside the loop.",
-        },
-        {
-          id: "hardcoded_output",
-          check: "hardcoded_output",
-          note:
-            "The solution appears to print the values manually instead of using the loop.",
-          explanation:
-            "The purpose of this task is to use a loop.",
-          hint:
-            "Use the loop variable to produce the output.",
-        },
-      ],
-    },
-  },
+      },
 
-  {
-    id: "apply-3",
-    title: "Calculate the total",
-    description:
-      "A student receives scores of 10, 20, 30, and 40. Use a loop to calculate and print the total score.",
-    difficulty: "Medium",
-    variables: [
       {
-        name: "total",
-        purpose: "Stores the running total.",
-      },
-      {
-        name: "score",
-        purpose: "Stores the current score.",
-      },
-    ],
-    hint:
-      "Start total at 0 and add each score to total.",
-    starterCode: `scores = [10, 20, 30, 40]
+        id: "calculate-total-score",
+        title: "Calculate the total",
+        description:
+          "A student receives scores of 10, 20, 30, and 40. Use a loop to calculate and print the total score.",
+        difficulty: "Medium",
+        variables: [
+          {
+            name: "total",
+            purpose: "Stores the running total.",
+          },
+          {
+            name: "score",
+            purpose: "Stores the current score.",
+          },
+        ],
+        hint:
+          "Start total at 0 and add each score to total.",
+        starterCode: `scores = [10, 20, 30, 40]
 
 total = 0
 
 # Write your loop here
 
 print(total)`,
-    correctCode: `scores = [10, 20, 30, 40]
+        correctCode: `scores = [10, 20, 30, 40]
 
 total = 0
 
@@ -1717,260 +1717,260 @@ for score in scores:
     total = total + score
 
 print(total)`,
-    expectedOutput: `100`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "list_iteration",
-        "accumulator",
-        "addition",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "missing_loop",
-          check: "list_loop",
-          note:
-            "The scores need to be processed using a loop.",
-          explanation:
-            "Each score in the list should be visited.",
-          hint:
-            "Use: for score in scores:",
+        expectedOutput: `100`,
+        adaptive: {
+          skills: [
+            "for_loop",
+            "list_iteration",
+            "accumulator",
+            "addition",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "missing_loop",
+              check: "list_loop",
+              note:
+                "The scores need to be processed using a loop.",
+              explanation:
+                "Each score in the list should be visited.",
+              hint:
+                "Use: for score in scores:",
+            },
+            {
+              id: "wrong_initial_total",
+              check: "total_initialization",
+              note:
+                "The running total should start at 0.",
+              explanation:
+                "An accumulator needs an initial value before the loop.",
+              hint:
+                "Use total = 0.",
+            },
+            {
+              id: "replacement_instead_of_addition",
+              check: "accumulator",
+              note:
+                "Your total is being replaced instead of accumulated.",
+              explanation:
+                "Each new score should be added to the existing total.",
+              hint:
+                "Use total = total + score or total += score.",
+            },
+            {
+              id: "wrong_variable",
+              check: "score_variable",
+              note:
+                "The loop should process each score from the scores list.",
+              explanation:
+                "The loop variable should represent the current score.",
+              hint:
+                "Use for score in scores:",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "The final total is not being printed.",
+              explanation:
+                "After the loop finishes, print the accumulated total.",
+              hint:
+                "Use print(total).",
+            },
+          ],
         },
-        {
-          id: "wrong_initial_total",
-          check: "total_initialization",
-          note:
-            "The running total should start at 0.",
-          explanation:
-            "An accumulator needs an initial value before the loop.",
-          hint:
-            "Use total = 0.",
-        },
-        {
-          id: "replacement_instead_of_addition",
-          check: "accumulator",
-          note:
-            "Your total is being replaced instead of accumulated.",
-          explanation:
-            "Each new score should be added to the existing total.",
-          hint:
-            "Use total = total + score or total += score.",
-        },
-        {
-          id: "wrong_variable",
-          check: "score_variable",
-          note:
-            "The loop should process each score from the scores list.",
-          explanation:
-            "The loop variable should represent the current score.",
-          hint:
-            "Use for score in scores:",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "The final total is not being printed.",
-          explanation:
-            "After the loop finishes, print the accumulated total.",
-          hint:
-            "Use print(total).",
-        },
-      ],
-    },
-  },
-
-  {
-    id: "apply-4",
-    title: "Create a countdown",
-    description:
-      "A game needs a countdown from 5 to 1. Write a loop that prints the countdown.",
-    difficulty: "Medium",
-    variables: [
-      {
-        name: "number",
-        purpose: "Stores the current countdown number.",
       },
-    ],
-    hint:
-      "Use range() with a negative step to count backwards.",
-    starterCode: `# Write your countdown loop here
+
+      {
+        id: "create-countdown-5-to-1",
+        title: "Create a countdown",
+        description:
+          "A game needs a countdown from 5 to 1. Write a loop that prints the countdown.",
+        difficulty: "Medium",
+        variables: [
+          {
+            name: "number",
+            purpose: "Stores the current countdown number.",
+          },
+        ],
+        hint:
+          "Use range() with a negative step to count backwards.",
+        starterCode: `# Write your countdown loop here
 
 pass`,
-    correctCode: `for number in range(5, 0, -1):
+        correctCode: `for number in range(5, 0, -1):
 
     print(number)`,
-    expectedOutput: `5
+        expectedOutput: `5
 4
 3
 2
 1`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "range",
-        "negative_step",
-        "countdown",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "wrong_start",
-          check: "range_start",
-          note:
-            "The countdown should begin at 5.",
-          explanation:
-            "The first value in range() should be 5.",
-          hint:
-            "Start with range(5, ...).",
+        adaptive: {
+          skills: [
+            "for_loop",
+            "range",
+            "negative_step",
+            "countdown",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "wrong_start",
+              check: "range_start",
+              note:
+                "The countdown should begin at 5.",
+              explanation:
+                "The first value in range() should be 5.",
+              hint:
+                "Start with range(5, ...).",
+            },
+            {
+              id: "wrong_stop",
+              check: "range_stop",
+              note:
+                "The range should continue down to 1.",
+              explanation:
+                "The stop value is excluded, so 0 is needed to include 1.",
+              hint:
+                "Use range(5, 0, -1).",
+            },
+            {
+              id: "missing_negative_step",
+              check: "range_step",
+              note:
+                "The loop is not moving backwards.",
+              explanation:
+                "A negative step makes range() count down.",
+              hint:
+                "Use a step of -1.",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "The countdown values are not being printed.",
+              explanation:
+                "Print the current number during each iteration.",
+              hint:
+                "Use print(number) inside the loop.",
+            },
+          ],
         },
-        {
-          id: "wrong_stop",
-          check: "range_stop",
-          note:
-            "The range should continue down to 1.",
-          explanation:
-            "The stop value is excluded, so 0 is needed to include 1.",
-          hint:
-            "Use range(5, 0, -1).",
-        },
-        {
-          id: "missing_negative_step",
-          check: "range_step",
-          note:
-            "The loop is not moving backwards.",
-          explanation:
-            "A negative step makes range() count down.",
-          hint:
-            "Use a step of -1.",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "The countdown values are not being printed.",
-          explanation:
-            "Print the current number during each iteration.",
-          hint:
-            "Use print(number) inside the loop.",
-        },
-      ],
-    },
-  },
+      },
 
-  {
-    id: "apply-5",
-    title: "Calculate squares",
-    description:
-      "A math program needs to print the squares of the numbers from 1 to 5.",
-    difficulty: "Medium",
-    variables: [
       {
-        name: "number",
-        purpose: "Stores the current number.",
-      },
-      {
-        name: "square",
-        purpose: "Stores the calculated square.",
-      },
-    ],
-    hint:
-      "A square is calculated by multiplying a number by itself.",
-    starterCode: `for number in range(1, 6):
+        id: "calculate-squares-1-to-5",
+        title: "Calculate squares",
+        description:
+          "A math program needs to print the squares of the numbers from 1 to 5.",
+        difficulty: "Medium",
+        variables: [
+          {
+            name: "number",
+            purpose: "Stores the current number.",
+          },
+          {
+            name: "square",
+            purpose: "Stores the calculated square.",
+          },
+        ],
+        hint:
+          "A square is calculated by multiplying a number by itself.",
+        starterCode: `for number in range(1, 6):
 
     # Calculate the square
 
     pass`,
-    correctCode: `for number in range(1, 6):
+        correctCode: `for number in range(1, 6):
 
     square = number * number
 
     print(square)`,
-    expectedOutput: `1
+        expectedOutput: `1
 4
 9
 16
 25`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "range",
-        "calculation",
-        "square",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "wrong_range",
-          check: "range",
-          note:
-            "The loop should process numbers 1 through 5.",
-          explanation:
-            "The task requires five iterations.",
-          hint:
-            "Use range(1, 6).",
+        adaptive: {
+          skills: [
+            "for_loop",
+            "range",
+            "calculation",
+            "square",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "wrong_range",
+              check: "range",
+              note:
+                "The loop should process numbers 1 through 5.",
+              explanation:
+                "The task requires five iterations.",
+              hint:
+                "Use range(1, 6).",
+            },
+            {
+              id: "wrong_square",
+              check: "square_calculation",
+              note:
+                "The calculation does not produce the square.",
+              explanation:
+                "A square is a number multiplied by itself.",
+              hint:
+                "Use number * number or number ** 2.",
+            },
+            {
+              id: "missing_square_variable",
+              check: "square_variable",
+              note:
+                "The calculated square is not stored as expected.",
+              explanation:
+                "The square variable should contain the calculated value.",
+              hint:
+                "Try square = number * number.",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "The calculated squares are not being printed.",
+              explanation:
+                "Each calculated square should be printed.",
+              hint:
+                "Use print(square).",
+            },
+          ],
         },
-        {
-          id: "wrong_square",
-          check: "square_calculation",
-          note:
-            "The calculation does not produce the square.",
-          explanation:
-            "A square is a number multiplied by itself.",
-          hint:
-            "Use number * number or number ** 2.",
-        },
-        {
-          id: "missing_square_variable",
-          check: "square_variable",
-          note:
-            "The calculated square is not stored as expected.",
-          explanation:
-            "The square variable should contain the calculated value.",
-          hint:
-            "Try square = number * number.",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "The calculated squares are not being printed.",
-          explanation:
-            "Each calculated square should be printed.",
-          hint:
-            "Use print(square).",
-        },
-      ],
-    },
-  },
+      },
 
-  {
-    id: "apply-6",
-    title: "Find the total price",
-    description:
-      "A shop has products costing 15, 25, 35, and 45. Use a loop to calculate and print the total price.",
-    difficulty: "Medium",
-    variables: [
       {
-        name: "price",
-        purpose: "Stores the current product price.",
-      },
-      {
-        name: "total",
-        purpose: "Stores the accumulated price.",
-      },
-    ],
-    hint:
-      "Use an accumulator: start total at 0 and add every price to it.",
-    starterCode: `prices = [15, 25, 35, 45]
+        id: "calculate-total-price",
+        title: "Find the total price",
+        description:
+          "A shop has products costing 15, 25, 35, and 45. Use a loop to calculate and print the total price.",
+        difficulty: "Medium",
+        variables: [
+          {
+            name: "price",
+            purpose: "Stores the current product price.",
+          },
+          {
+            name: "total",
+            purpose: "Stores the accumulated price.",
+          },
+        ],
+        hint:
+          "Use an accumulator: start total at 0 and add every price to it.",
+        starterCode: `prices = [15, 25, 35, 45]
 
 total = 0
 
 # Write your loop here
 
 print(total)`,
-    correctCode: `prices = [15, 25, 35, 45]
+        correctCode: `prices = [15, 25, 35, 45]
 
 total = 0
 
@@ -1979,70 +1979,70 @@ for price in prices:
     total = total + price
 
 print(total)`,
-    expectedOutput: `120`,
-    adaptive: {
-      skills: [
-        "for_loop",
-        "list_iteration",
-        "accumulator",
-        "addition",
-        "print_output",
-      ],
-      mistakes: [
-        {
-          id: "missing_list_loop",
-          check: "list_loop",
-          note:
-            "The program needs to process every price in the prices list.",
-          explanation:
-            "A loop should visit each price one at a time.",
-          hint:
-            "Use: for price in prices:",
+        expectedOutput: `120`,
+        adaptive: {
+          skills: [
+            "for_loop",
+            "list_iteration",
+            "accumulator",
+            "addition",
+            "print_output",
+          ],
+          mistakes: [
+            {
+              id: "missing_list_loop",
+              check: "list_loop",
+              note:
+                "The program needs to process every price in the prices list.",
+              explanation:
+                "A loop should visit each price one at a time.",
+              hint:
+                "Use: for price in prices:",
+            },
+            {
+              id: "wrong_initial_total",
+              check: "total_initialization",
+              note:
+                "The total should start at 0.",
+              explanation:
+                "The accumulator needs an initial value.",
+              hint:
+                "Use total = 0.",
+            },
+            {
+              id: "replacement_instead_of_addition",
+              check: "accumulator",
+              note:
+                "Your total is being replaced instead of increased.",
+              explanation:
+                "Each price must be added to the existing total.",
+              hint:
+                "Use total = total + price.",
+            },
+            {
+              id: "wrong_loop_variable",
+              check: "price_variable",
+              note:
+                "The loop should process one price at a time.",
+              explanation:
+                "The current price should come from the prices list.",
+              hint:
+                "Use for price in prices:",
+            },
+            {
+              id: "missing_print",
+              check: "print",
+              note:
+                "The final total is not being printed.",
+              explanation:
+                "Print the accumulated total after the loop.",
+              hint:
+                "Use print(total).",
+            },
+          ],
         },
-        {
-          id: "wrong_initial_total",
-          check: "total_initialization",
-          note:
-            "The total should start at 0.",
-          explanation:
-            "The accumulator needs an initial value.",
-          hint:
-            "Use total = 0.",
-        },
-        {
-          id: "replacement_instead_of_addition",
-          check: "accumulator",
-          note:
-            "Your total is being replaced instead of increased.",
-          explanation:
-            "Each price must be added to the existing total.",
-          hint:
-            "Use total = total + price.",
-        },
-        {
-          id: "wrong_loop_variable",
-          check: "price_variable",
-          note:
-            "The loop should process one price at a time.",
-          explanation:
-            "The current price should come from the prices list.",
-          hint:
-            "Use for price in prices:",
-        },
-        {
-          id: "missing_print",
-          check: "print",
-          note:
-            "The final total is not being printed.",
-          explanation:
-            "Print the accumulated total after the loop.",
-          hint:
-            "Use print(total).",
-        },
-      ],
-    },
-  },
-],  
-  
+      },
+    ],
+
   },
 };

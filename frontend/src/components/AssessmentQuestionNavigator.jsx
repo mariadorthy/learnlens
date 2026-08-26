@@ -7,7 +7,6 @@ function AssessmentQuestionNavigator({
 }) {
   return (
     <div className="assessment-question-navigator">
-
       <div className="navigator-header">
         <strong>Your Questions</strong>
 
@@ -18,24 +17,34 @@ function AssessmentQuestionNavigator({
 
       <div className="navigator-row">
         {questions.map((question, index) => {
-          const completed = completedIds.has(question.id);
+          const score = Number(
+            questionScores?.[question.id] ?? 0
+          );
 
-          const score = questionScores[question.id];
+          // IMPORTANT:
+          // A question is completed ONLY when it has
+          // reached mastery.
+          const completed =
+            completedIds?.has(question.id) &&
+            score >= 80;
 
-          const needsReview =
-            completed &&
-            typeof score === "number" &&
-            score < 70;
-
-          const isCurrent = index === currentIndex;
+          const isCurrent =
+            index === currentIndex;
 
           return (
             <div
               key={question.id}
-              className={`question-box ${
-                isCurrent ? "current" : ""
-              } ${completed ? "completed" : ""}`}
-              onClick={() => onSelectQuestion(index)}
+              className={`
+                question-box
+                ${isCurrent ? "current" : ""}
+                ${completed ? "completed" : ""}
+              `}
+              onClick={() => {
+                // Never navigate into a mastered question.
+                if (!completed) {
+                  onSelectQuestion(index);
+                }
+              }}
               role="button"
               tabIndex={0}
               onKeyDown={(event) => {
@@ -43,7 +52,11 @@ function AssessmentQuestionNavigator({
                   event.key === "Enter" ||
                   event.key === " "
                 ) {
-                  onSelectQuestion(index);
+                  event.preventDefault();
+
+                  if (!completed) {
+                    onSelectQuestion(index);
+                  }
                 }
               }}
             >
@@ -56,18 +69,24 @@ function AssessmentQuestionNavigator({
               </div>
 
               <div
-                className={`question-box-status ${
-                  needsReview ? "needs-review" : ""
-                }`}
+                className={`
+                  question-box-status
+                  ${completed
+                    ? ""
+                    : score > 0
+                      ? "needs-review"
+                      : ""
+                  }
+                `}
               >
                 {completed
-                  ? needsReview
+                  ? "✓"
+                  : score > 0
                     ? "Review"
-                    : "✓"
-                  : "—"}
+                    : "—"}
               </div>
 
-              {typeof score === "number" && (
+              {score > 0 && (
                 <div className="question-box-score">
                   {score}%
                 </div>

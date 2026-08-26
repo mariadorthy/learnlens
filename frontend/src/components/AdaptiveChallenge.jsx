@@ -31,27 +31,27 @@ function AdaptiveChallenge({
   }
 
   const normalizedWeakness =
-  typeof weakness === "string"
-    ? weakness.toLowerCase().trim()
-    : "";
+    typeof weakness === "string"
+      ? weakness.toLowerCase().trim()
+      : "";
 
-const weaknessAliases = {
-  loop_syntax: "python_syntax",
-};
+  const weaknessAliases = {
+    loop_syntax: "python_syntax",
+  };
 
-const challengeWeakness =
-  weaknessAliases[normalizedWeakness] ||
-  normalizedWeakness;
+  const challengeWeakness =
+    weaknessAliases[normalizedWeakness] ||
+    normalizedWeakness;
 
   const questionSpecificKey =
     `${question.id}_${normalizedWeakness}`;
 
- const challenge =
-  adaptiveChallenges[questionSpecificKey] ??
-  adaptiveChallenges[normalizedWeakness] ??
-  adaptiveChallenges[challengeWeakness] ??
-  adaptiveChallenges.general_implementation ??
-  null;
+  const challenge =
+    adaptiveChallenges[questionSpecificKey] ??
+    adaptiveChallenges[normalizedWeakness] ??
+    adaptiveChallenges[challengeWeakness] ??
+    adaptiveChallenges.general_implementation ??
+    null;
 
   console.log("ADAPTIVE CHALLENGE KEY:", questionSpecificKey);
   console.log("SELECTED ADAPTIVE CHALLENGE:", challenge);

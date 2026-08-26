@@ -21,20 +21,16 @@ import { concepts } from "./data/concepts";
 
 function getStrength(score, total) {
   // Nothing attempted
-  if (
-    total === 0 ||
-    score === null ||
-    score === undefined
-  ) {
+  if (total === 0) {
     return "Not attempted";
   }
 
-  // Started but not all 6 questions completed
+  // Assessment has started but 6 questions are not completed
   if (total < 6) {
     return "Not completed";
   }
 
-  // Dimension is complete only at 6/6
+  // All 6 questions completed
   if (score >= 80) {
     return "Strong";
   }
@@ -71,6 +67,7 @@ function App() {
   // =========================================================
 
   const [learning, setLearning] = useState(false);
+  const [conceptPage, setConceptPage] = useState(false);
   const [explain, setExplain] = useState(false);
   const [theory, setTheory] = useState(false);
   const [predict, setPredict] = useState(false);
@@ -143,6 +140,7 @@ function App() {
 
   const resetPages = () => {
     setLearning(false);
+    setConceptPage(false);
     setTheory(false);
     setExplain(false);
     setPredict(false);
@@ -190,7 +188,10 @@ function App() {
   // SELECT CONCEPT
   // =========================================================
 
-  const handleConceptSelect = (roadmapConcept) => {
+  const handleConceptSelect = (
+    roadmapConcept,
+    options = {}
+  ) => {
     console.log(
       "SELECTED CONCEPT:",
       roadmapConcept
@@ -215,12 +216,11 @@ function App() {
       fullConcept
     );
 
-    console.log(
-      "ADAPTIVE DIMENSION:",
-      adaptiveDimension
-    );
-
     setSelectedConcept(fullConcept);
+
+    // -----------------------------------------
+    // ADAPTIVE MODE
+    // -----------------------------------------
 
     setAdaptiveMode(
       Boolean(
@@ -229,8 +229,22 @@ function App() {
       )
     );
 
+    // -----------------------------------------
+    // RESET PAGES
+    // -----------------------------------------
+
     resetPages();
     setShowCompletion(false);
+
+    // -----------------------------------------
+    // CONTINUE → LEARN PAGE
+    // -----------------------------------------
+
+    if (options.startAt === "learning") {
+      setAdaptiveMode(false);
+      setLearning(true);
+      setConceptPage(false);
+    }
   };
 
   // =========================================================
@@ -245,6 +259,24 @@ function App() {
     setAdaptiveMode(false);
 
     setLearning(true);
+    setConceptPage(false);
+    setTheory(false);
+    setExplain(false);
+    setPredict(false);
+    setCoding(false);
+    setDebug(false);
+    setApply(false);
+  };
+
+  const handleStartConcept = () => {
+    if (!selectedConcept) {
+      return;
+    }
+
+    setAdaptiveMode(false);
+
+    setLearning(false);
+    setConceptPage(true);
     setTheory(false);
     setExplain(false);
     setPredict(false);
@@ -262,7 +294,10 @@ function App() {
       return;
     }
 
+    setAdaptiveMode(false);
+
     setLearning(false);
+    setConceptPage(false);
     setTheory(true);
     setExplain(false);
     setPredict(false);
@@ -358,10 +393,10 @@ function App() {
   };
 
   // =========================================================
-  // NORMAL FULL ASSESSMENT COMPLETE
+  // APPLY COMPLETE → COMPLETION OVERVIEW
   // =========================================================
 
-  const handleCodingComplete = () => {
+  const handleApplyComplete = () => {
     if (!selectedConcept) {
       return;
     }
@@ -377,34 +412,31 @@ function App() {
     }
 
     setRoadmapState((previousRoadmap) => {
-      const updatedRoadmap =
-        previousRoadmap.map(
-          (concept, index) => {
-            // Current concept completed
-            if (index === currentIndex) {
-              return {
-                ...concept,
-                status: "completed",
-                progress: 100,
-              };
-            }
-
-            // Unlock next concept
-            if (
-              index === currentIndex + 1
-            ) {
-              return {
-                ...concept,
-                status: "current",
-                progress: 0,
-              };
-            }
-
-            return concept;
+      return previousRoadmap.map(
+        (concept, index) => {
+          // Current concept completed
+          if (index === currentIndex) {
+            return {
+              ...concept,
+              status: "completed",
+              progress: 100,
+            };
           }
-        );
 
-      return updatedRoadmap;
+          // Unlock next concept
+          if (
+            index === currentIndex + 1
+          ) {
+            return {
+              ...concept,
+              status: "current",
+              progress: 0,
+            };
+          }
+
+          return concept;
+        }
+      );
     });
 
     // Refresh dashboard
@@ -415,10 +447,11 @@ function App() {
     // Close Apply
     setApply(false);
 
-    // Show completion page
+    // Open Completion Overview
     setShowCompletion(true);
 
-    // Keep selectedConcept because
+    // IMPORTANT:
+    // Do NOT clear selectedConcept.
     // CompletionOverview needs it.
   };
 
@@ -435,99 +468,205 @@ function App() {
     );
 
     const {
-  dimension,
-  correct,
-  total,
-} = result;
+      dimension,
+      correct,
+      total,
+    } = result;
 
-console.log(
-  "ADAPTIVE RESULT NORMALIZED:",
-  {
-    dimension,
-    correct,
-    total,
-  }
-);
+    // -----------------------------------------
+    // VALIDATION
+    // -----------------------------------------
 
-if (
-  !dimension ||
-  typeof correct !== "number" ||
-  typeof total !== "number"
-) {
-  console.warn(
-    "Invalid adaptive assessment result:",
-    result
-  );
-  return;
-
-}
-
-    // ---------------------------------------------------------
-    // SAFETY CHECK
-    // ---------------------------------------------------------
-
-    if (total !== REQUIRED_QUESTIONS) {
+    if (
+      !dimension ||
+      typeof correct !== "number" ||
+      typeof total !== "number"
+    ) {
       console.warn(
-        `Dimension ${dimension} is not complete: ${total}/${REQUIRED_QUESTIONS}`
+        "Invalid adaptive assessment result:",
+        result
       );
-
-      // Do not move to next dimension
-      // Do not mark dimension as completed
       return;
     }
 
-    // ---------------------------------------------------------
-    // CALCULATE FINAL SCORE
-    // ---------------------------------------------------------
+    // -----------------------------------------
+    // PROGRESS
+    // -----------------------------------------
 
-    const score = Math.round(
-      (correct / REQUIRED_QUESTIONS) * 100
+    const progress = Math.min(
+      Math.round(
+        (total / REQUIRED_QUESTIONS) * 100
+      ),
+      100
     );
 
-    const strength = getStrength(
+    // -----------------------------------------
+    // SCORE
+    // -----------------------------------------
+
+    const score =
+      total > 0
+        ? Math.round((correct / total) * 100)
+        : null;
+
+    // -----------------------------------------
+    // STRENGTH
+    // -----------------------------------------
+
+    const strength =
+      total >= REQUIRED_QUESTIONS
+        ? getStrength(score, total)
+        : "Not completed";
+
+    const dimensionResult = {
       score,
-      total
-    );
+      correct,
+      total,
+      progress,
+      strength,
+    };
 
     console.log(
-      "COMPLETED DIMENSION:",
+      "DIMENSION RESULT:",
       {
         dimension,
-        correct,
-        total,
-        score,
-        strength,
+        ...dimensionResult,
       }
     );
 
-    // ---------------------------------------------------------
-    // SAVE COMPLETED DIMENSION
-    // ---------------------------------------------------------
+    // -----------------------------------------
+    // UPDATE FINGERPRINT
+    // -----------------------------------------
 
-    setKnowledgeFingerprint((previous) => ({
-      ...previous,
-      [dimension]: {
-        score,
-        correct,
-        total,
-        strength,
-      },
-    }));
+    const updatedFingerprint = {
+      ...knowledgeFingerprint,
+      [dimension]: dimensionResult,
+    };
 
-    // ---------------------------------------------------------
-    // REFRESH DASHBOARD
-    // ---------------------------------------------------------
+    setKnowledgeFingerprint(
+      updatedFingerprint
+    );
 
     setRefreshFingerprint(
       (previous) => previous + 1
     );
 
-    // ---------------------------------------------------------
-    // LEAVE ADAPTIVE ASSESSMENT
-    // ---------------------------------------------------------
+    // -----------------------------------------
+    // NOT FINISHED YET
+    // -----------------------------------------
+
+    if (total < REQUIRED_QUESTIONS) {
+      return;
+    }
+
+    // -----------------------------------------
+    // CHECK ENTIRE CONCEPT
+    // -----------------------------------------
+
+    const dimensions = [
+      "recall",
+      "explain",
+      "predict",
+      "implement",
+      "debug",
+      "apply",
+    ];
+
+    const allDimensionsComplete =
+      dimensions.every((key) => {
+        const data =
+          updatedFingerprint[key];
+
+        return (
+          data &&
+          Number(data.total) >=
+          REQUIRED_QUESTIONS
+        );
+      });
+
+    console.log(
+      "ALL DIMENSIONS COMPLETE:",
+      allDimensionsComplete
+    );
+
+    // -----------------------------------------
+    // ENTIRE CONCEPT COMPLETE
+    // -----------------------------------------
+
+    if (allDimensionsComplete) {
+      console.log(
+        "🎉 ENTIRE CONCEPT COMPLETED"
+      );
+
+      // Mark roadmap concept complete
+      if (selectedConcept) {
+        const currentIndex =
+          roadmapState.findIndex(
+            (concept) =>
+              concept.id ===
+              selectedConcept.id
+          );
+
+        if (currentIndex !== -1) {
+          setRoadmapState(
+            (previousRoadmap) =>
+              previousRoadmap.map(
+                (concept, index) => {
+
+                  if (
+                    index === currentIndex
+                  ) {
+                    return {
+                      ...concept,
+                      status:
+                        "completed",
+                      progress: 100,
+                    };
+                  }
+
+                  if (
+                    index ===
+                    currentIndex + 1
+                  ) {
+                    return {
+                      ...concept,
+                      status: "current",
+                      progress: 0,
+                    };
+                  }
+
+                  return concept;
+                }
+              )
+          );
+        }
+      }
+
+      // Refresh dashboard data
+      setRefreshFingerprint(
+        (previous) => previous + 1
+      );
+
+      // Stop assessment
+      setAdaptiveMode(false);
+      resetPages();
+
+      // IMPORTANT:
+      // Keep selectedConcept!
+      setShowCompletion(true);
+
+      return;
+    }
+
+    // -----------------------------------------
+    // CONCEPT NOT COMPLETE
+    // -----------------------------------------
 
     setAdaptiveMode(false);
     resetPages();
+
+    // Go back to dashboard so the next
+    // adaptive dimension can be selected.
     setSelectedConcept(null);
   };
 
@@ -554,6 +693,36 @@ if (
     setAdaptiveMode(false);
     resetPages();
     setShowCompletion(false);
+  };
+
+  const handleAdaptiveProgress = (progress = {}) => {
+    console.log("ADAPTIVE PROGRESS RECEIVED:", progress);
+
+    if (!progress.dimension) {
+      return;
+    }
+
+    setKnowledgeFingerprint((previous) => ({
+      ...previous,
+      [progress.dimension]: {
+        ...(previous[progress.dimension] || {}),
+        score: progress.score ?? null,
+        correct: progress.correct ?? 0,
+        total: progress.total ?? 0,
+        progress: progress.progress ?? 0,
+        strength:
+          progress.total >= 6
+            ? getStrength(
+              progress.score ?? 0,
+              progress.total
+            )
+            : "Not completed",
+      },
+    }));
+
+    setRefreshFingerprint(
+      (previous) => previous + 1
+    );
   };
 
   // =========================================================
@@ -651,43 +820,30 @@ if (
           </div>
         </div>
       </header>
-
       {/* =====================================================
-          PAGE ROUTING
-      ===================================================== */}
+    PAGE ROUTING
+===================================================== */}
 
       {/* -----------------------------------------------------
-          1. ADAPTIVE ASSESSMENT
-      ----------------------------------------------------- */}
+    1. ADAPTIVE ASSESSMENT
+    Dashboard "Continue Learning" → directly to assessment
+----------------------------------------------------- */}
 
       {adaptiveMode &&
         selectedConcept?.adaptiveDimension ? (
+
         <AdaptiveAssessment
           concept={selectedConcept}
           student={selectedStudent}
           onComplete={handleAdaptiveComplete}
+          onProgress={handleAdaptiveProgress}
           onBack={handleAdaptiveBack}
-        />
-      ) : coding ? (
-
-        /* -----------------------------------------------------
-            2. NORMAL IMPLEMENT
-        ----------------------------------------------------- */
-
-        <ImplementAssessment
-          concept={selectedConcept}
-          student={selectedStudent}
-          onBack={() => {
-            setCoding(false);
-            setPredict(true);
-          }}
-          onComplete={handleStartDebug}
         />
 
       ) : theory ? (
 
         /* -----------------------------------------------------
-            3. NORMAL THEORY
+            2. THEORY
         ----------------------------------------------------- */
 
         <TheoryAssessment
@@ -708,26 +864,10 @@ if (
           }}
         />
 
-      ) : debug ? (
-
-        /* -----------------------------------------------------
-            4. NORMAL DEBUG
-        ----------------------------------------------------- */
-
-        <DebugAssessment
-          concept={selectedConcept}
-          student={selectedStudent}
-          onBack={() => {
-            setDebug(false);
-            setCoding(true);
-          }}
-          onComplete={handleStartApply}
-        />
-
       ) : explain ? (
 
         /* -----------------------------------------------------
-            5. NORMAL EXPLAIN
+            3. EXPLAIN
         ----------------------------------------------------- */
 
         <ExplainAssessment
@@ -740,26 +880,10 @@ if (
           onComplete={handleStartPredict}
         />
 
-      ) : apply ? (
-
-        /* -----------------------------------------------------
-            6. NORMAL APPLY
-        ----------------------------------------------------- */
-
-        <ApplyAssessment
-          concept={selectedConcept}
-          student={selectedStudent}
-          onBack={() => {
-            setApply(false);
-            setDebug(true);
-          }}
-          onComplete={handleCodingComplete}
-        />
-
       ) : predict ? (
 
         /* -----------------------------------------------------
-            7. NORMAL PREDICT
+            4. PREDICT
         ----------------------------------------------------- */
 
         <PredictAssessment
@@ -772,18 +896,74 @@ if (
           onComplete={handleStartImplement}
         />
 
-      ) : learning ? (
+      ) : coding ? (
 
         /* -----------------------------------------------------
-            8. LEARNING
+            5. IMPLEMENT
         ----------------------------------------------------- */
+
+        <ImplementAssessment
+          concept={selectedConcept}
+          student={selectedStudent}
+          onBack={() => {
+            setCoding(false);
+            setPredict(true);
+          }}
+          onComplete={handleStartDebug}
+        />
+
+      ) : debug ? (
+
+        /* -----------------------------------------------------
+            6. DEBUG
+        ----------------------------------------------------- */
+
+        <DebugAssessment
+          concept={selectedConcept}
+          student={selectedStudent}
+          onBack={() => {
+            setDebug(false);
+            setCoding(true);
+          }}
+          onComplete={handleStartApply}
+        />
+
+      ) : apply ? (
+
+        /* -----------------------------------------------------
+            7. APPLY
+        ----------------------------------------------------- */
+
+        <ApplyAssessment
+          concept={selectedConcept}
+          student={selectedStudent}
+          onBack={() => {
+            setApply(false);
+            setDebug(true);
+          }}
+          onComplete={handleApplyComplete}
+        />
+
+      ) : learning ? (
 
         <LearningPage
           concept={selectedConcept}
           onBack={() => {
             setLearning(false);
+            setSelectedConcept(null);
           }}
-          onStartTheory={handleStartTheory}
+          onStartConcept={handleStartConcept}
+        />
+
+      ) : conceptPage ? (
+
+        <ConceptPage
+          concept={selectedConcept}
+          onBack={() => {
+            setConceptPage(false);
+            setSelectedConcept(null);
+          }}
+          onStartLearning={handleStartTheory}
         />
 
       ) : showCompletion ? (
@@ -801,18 +981,6 @@ if (
           }}
         />
 
-      ) : selectedConcept ? (
-
-        /* -----------------------------------------------------
-            10. CONCEPT PAGE
-        ----------------------------------------------------- */
-
-        <ConceptPage
-          concept={selectedConcept}
-          onBack={handleBack}
-          onStartLearning={handleStartLearning}
-        />
-
       ) : (
 
         /* -----------------------------------------------------
@@ -822,6 +990,7 @@ if (
         <Dashboard
           concepts={roadmapState}
           student={selectedStudent}
+          knowledgeFingerprint={knowledgeFingerprint}
           onConceptSelect={handleConceptSelect}
           refreshFingerprint={refreshFingerprint}
         />
@@ -838,6 +1007,7 @@ function AdaptiveAssessment({
   concept,
   student,
   onComplete,
+  onProgress,
   onBack,
 }) {
   const dimension =
@@ -858,6 +1028,7 @@ function AdaptiveAssessment({
         concept={concept}
         student={student}
         onComplete={onComplete}
+        onProgress={onProgress}
         onBack={onBack}
       />
     );
