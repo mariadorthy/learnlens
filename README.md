@@ -520,7 +520,7 @@ Proof-of-Learn
 
 ### Knowledge Fingerprint
 
-![Knowledge Fingerprint](./docs/screenshots/partial-knowledge.png)
+![Knowledge Fingerprint](./docs/screenshots/knowledge-fingerprint.png)
 
 ### Adaptive Challenge
 
